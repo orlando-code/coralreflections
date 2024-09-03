@@ -1,6 +1,18 @@
+# general
+import numpy as np
+import pandas as pd
+
+# plotting
+import matplotlib.pyplot as plt
+from matplotlib.gridspec import GridSpec
+from matplotlib import ticker
+
+# fitting
 from scipy.optimize import curve_fit, minimize
+from scipy.interpolate import UnivariateSpline
 
 
+# import resource data
 try:
     from importlib import resources
     resource_dir = resources.files('reflectance') / 'resources'
@@ -8,9 +20,6 @@ except:
     from pathlib import Path
     resource_dir = Path(__file__).resolve().parent / 'resources'
 
-# import pickle
-import numpy as np
-import pandas as pd
 
 # read in first AOP model (arbitrary choice)
 f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
@@ -110,6 +119,73 @@ def _wrapper(i, prism_spectra, AOD_args, end_member_array, end_member_bounds: tu
             bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(end_member_array)) # may not always want to constrain this (e.g. for PCs)
     return fit.x
 
+
+def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_wvs: tuple[float, float]):
+    """
+    Plot spline fits for a given spectrum with various smoothing factors.
+
+    Parameters:
+    - smoothing_factors (list[float]): List of smoothing factors to be used for spline fitting.
+    - spectrum (pd.Series): The spectrum data to be fitted, with the index representing wavelengths and values representing intensities.
+    - zoom_wvs (tuple[float, float]): Tuple specifying the wavelength range to zoom in on for the zoomed plot.
+
+    Returns:
+    - None
+    """
+    fig = plt.figure(figsize=(14, len(smoothing_factors)*3))
+    # one more plot than smoothing to also plot the original spectrum
+    gs = GridSpec(len(smoothing_factors)+1, 5, figure=fig)
+    fitted_ax = fig.add_subplot(gs[0, 0:4])
+    fitted_ax.plot(spectrum.index, spectrum.values, label="spectrum", c='grey', zorder=-2)
+    fitted_ax.grid(axis="x")
+
+    zoom_fitted_ax = fig.add_subplot(gs[0, 4], sharey=fitted_ax)
+    zoom_fitted_ax.plot(spectrum.index, spectrum.values, c='grey', zorder=-2)
+    # formatting
+    zoom_fitted_ax.set_xlim(*zoom_wvs)
+    plt.setp(zoom_fitted_ax.get_yticklabels(), visible=False)
+    zoom_fitted_ax.text(0.1, 0.1, f"zoomed spectrum", 
+                        transform=zoom_fitted_ax.transAxes, 
+                        fontsize=12, 
+                        verticalalignment='bottom', 
+                        horizontalalignment='left')
+
+    for j, sf in enumerate(smoothing_factors):
+        spline = UnivariateSpline(spectrum.index, spectrum.values, s=sf)
+        # plot spline fit
+        fitted_ax.plot(spectrum.index, spline(spectrum.index), label=f"spline fit, s={sf}", alpha=1, linestyle='--')
+        # plot zoomed spline fit
+        zoom_fitted_ax.plot(spectrum.index, spline(spectrum.index), label=f"spline fit, s={sf}", alpha=1, linestyle='--')
+        
+        # plot spectral residuals
+        spectrum_ax = fig.add_subplot(gs[j+1, 0:4], sharex=fitted_ax)
+        residuals = spectrum.values - spline(spectrum.index)
+        spectrum_ax.scatter(spectrum.index, residuals, label=f"s={sf} residuals", s=3)
+        spectrum_ax.hlines(0, spectrum.index.min(), spectrum.index.max(), color='r', linestyle='--', zorder=-2)
+        # formatting
+        spectrum_ax.set_xlim(spectrum.index.min(), spectrum.index.max())
+        spectrum_ax.grid(axis="x")
+        spectrum_ax.legend(loc="upper right")
+        spectrum_ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+        spectrum_ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+        
+        # plot histograms of residuals
+        hist_ax = fig.add_subplot(gs[j+1, 4])
+        counts, bins, _ = hist_ax.hist(residuals, bins=20, orientation='horizontal')
+        hist_ax.hlines(0, 0, max(counts*1.1), color='r', linestyle='--')
+        #formatting
+        hist_ax.set_xlim(min(1.1*counts), max(1.1*counts))
+        hist_ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
+        hist_ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
+
+    # tidying up
+    for k, ax in enumerate(fig.get_axes()):
+        if ax != spectrum_ax and ax != zoom_fitted_ax and k%2 == 0:
+            plt.setp(ax.get_xticklabels(), visible=False)
+    spectrum_ax.set_xlabel("wavelength (nm)")
+            
+    fitted_ax.legend(loc="upper right");
+    plt.tight_layout()
 
 
 ### DEPRECATED ###
