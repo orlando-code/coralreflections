@@ -21,7 +21,7 @@ except:
     resource_dir = Path(__file__).resolve().parent / 'resources'
 
 
-# read in first AOP model (arbitrary choice)
+# read in first AOP model (arbitrary choice), the functions looked less crazy than G2. Didn't look at G3.
 f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
 with open(f_AOP_model, 'r') as f:
     start_found = False
@@ -94,6 +94,13 @@ def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
     return np.arccos(np.clip(cos_theta, -1.0, 1.0))  # Clip values to avoid numerical issues
 
 
+def spectral_angle_correlation(spectra: np.ndarray) -> float:
+    """Return a summary statistic for the similarity between a number of spectra"""
+    matrix = spectral_angle_correlation_matrix(spectra)
+    # calculate mean of upper triangle of matrix
+    return np.mean(matrix[np.triu_indices(matrix.shape[0], k=1)]), np.std(matrix[np.triu_indices(matrix.shape[0], k=1)])
+    
+    
 def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
     """Compute the correlation matrix using spectral angle for an array of spectra."""
     dot_product_matrix = np.dot(spectra, spectra.T)
@@ -187,6 +194,38 @@ def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_w
     fitted_ax.legend(loc="upper right");
     plt.tight_layout()
 
+
+def visualise_rolling_spectral_correlation(end_members, kernel_width, kernel_displacement):
+    f, ax_spectra = plt.subplots(1, figsize=(12, 6))
+    ax_correlation = ax_spectra.twinx()
+
+    choice_array = np.array([spectrum.values for spectrum in end_members.values()])
+
+    # plot endmember spectra
+    for cat, spectrum in end_members.items():
+        ax_spectra.plot(spectrum.index, end_members[cat], label=cat, alpha=0.4)
+
+    wv_pairs = [(wv, wv+kernel_width) for wv in np.arange(spectrum.index.min(), spectrum.index.max(), kernel_displacement)]
+    x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
+    # plot kernel correlations
+    mean_corrs = []
+    for wv_pair in wv_pairs:    
+        ids = (spectrum.index > min(wv_pair)) & (spectrum.index < max(wv_pair))
+        mean, _ = spectral_angle_correlation(choice_array[:, ids])
+        mean_corrs.append(mean)
+
+    ax_correlation.scatter(x_coords, mean_corrs, color='k', s=10, marker='x')
+
+    # formatting
+    ax_spectra.legend(bbox_to_anchor=(1.1, 0.7), title="End members")
+    ax_spectra.xaxis.set_major_locator(plt.MultipleLocator(10))
+    ax_spectra.grid('major', axis='x')
+    ax_spectra.set_ylabel("Reflectance")
+    ax_spectra.set_xlabel('Wavelength (nm)')
+    ax_spectra.set_xlim(spectrum.index.min(), spectrum.index.max())
+
+    ax_correlation.set_ylabel("Mean spectral angle correlation")
+    ax_correlation.grid('major', axis='y');
 
 ### DEPRECATED ###
 # # been surpassed by function for minimisation
