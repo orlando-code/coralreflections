@@ -205,17 +205,22 @@ def visualise_rolling_spectral_correlation(end_members, kernel_width, kernel_dis
     for cat, spectrum in end_members.items():
         ax_spectra.plot(spectrum.index, end_members[cat], label=cat, alpha=0.4)
 
-    wv_pairs = [(wv, wv+kernel_width) for wv in np.arange(spectrum.index.min(), spectrum.index.max(), kernel_displacement)]
+    wv_pairs = [(wv, wv+2*kernel_width) for wv in np.arange(spectrum.index.min(), spectrum.index.max(), kernel_displacement)]
     x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
+    print(x_coords)
     # plot kernel correlations
     mean_corrs = []
-    for wv_pair in wv_pairs:    
+    for wv_pair in wv_pairs:
+        print(wv_pair)
         ids = (spectrum.index > min(wv_pair)) & (spectrum.index < max(wv_pair))
         mean, _ = spectral_angle_correlation(choice_array[:, ids])
         mean_corrs.append(mean)
 
-    ax_correlation.scatter(x_coords, mean_corrs, color='k', s=10, marker='x')
-
+    # ax_correlation.scatter(x_coords, mean_corrs, color='k', s=10, marker='x')
+    # plot horizontal error bars, width kenrel_width
+    ax_correlation.errorbar(x_coords, mean_corrs, xerr=kernel_width/2, fmt='x', color='k', alpha=0.5, label="horizontal bars = kernel span")
+    ax_correlation.legend()
+    
     # formatting
     ax_spectra.legend(bbox_to_anchor=(1.1, 0.7), title="End members")
     ax_spectra.xaxis.set_major_locator(plt.MultipleLocator(10))
@@ -224,8 +229,9 @@ def visualise_rolling_spectral_correlation(end_members, kernel_width, kernel_dis
     ax_spectra.set_xlabel('Wavelength (nm)')
     ax_spectra.set_xlim(spectrum.index.min(), spectrum.index.max())
 
-    ax_correlation.set_ylabel("Mean spectral angle correlation")
+    ax_correlation.set_ylabel("Mean spectral angle correlation:\nLow is more correlated")
     ax_correlation.grid('major', axis='y');
+
 
 ### DEPRECATED ###
 # # been surpassed by function for minimisation
