@@ -72,6 +72,26 @@ def sub_surface_reflectance_Rb(wv, end_member_array, bb, K, H, AOD_args, *Rb_arg
     return sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
 
 
+def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0.1, end_member_bounds: tuple = (0, np.inf)):
+    fit = minimize(of,
+            # initial parameter values
+            x0=[0.1, 0.1, 0] + [Rb_init] * len(end_member_array),
+            # extra arguments passsed to the object function (and its derivatives)
+            args=(prism_spectra.loc[i], # spectrum to fit (obs)
+                  *AOD_args,    # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
+                  end_member_array  # typical end-member spectra
+                  ),
+            # constrain values
+            bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(end_member_array)) # may not always want to constrain this (e.g. for PCs)
+    return fit.x
+
+
+def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+    bb, K, H = x[:3]
+    Rb_values = x[3:]
+    Rb = Rb_endmember(end_member_array, *Rb_values)
+    pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    return spectral_angle(pred, obs)
 
 
 def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
@@ -84,6 +104,17 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
     return ssq + penalty_scale * penalty
 
+
+def weighted_spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+    bb, K, H = x[:3]
+    Rb_values = x[3:]
+    Rb = Rb_endmember(end_member_array, *Rb_values)
+    pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    # calculate rolling spectral angle between predicted and observed spectra
+    spectral_angle_corrs = spectral_angle_correlation(Rb)
+    # weight the regions of the spectra by the spectral angle correlation
+    return -spectral_angle_corrs * spectral_angle(pred, obs)
+    
 
 def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
     """Compute spectral angle between two spectra."""
@@ -111,20 +142,6 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
     # Clip values to the valid range of arccos to handle numerical issues
     cos_theta_matrix = np.clip(cos_theta_matrix, -1.0, 1.0)
     return np.arccos(cos_theta_matrix)
-
-
-def _wrapper(i, prism_spectra, AOD_args, end_member_array, end_member_bounds: tuple = (0, np.inf)):
-    fit = minimize(r2_objective_fn,
-            # initial parameter values
-            x0=[0.1, 0.1, 0] + [0] * len(end_member_array),
-            # extra arguments passsed to the object function (and its derivatives)
-            args=(prism_spectra.loc[i], # spectrum to fit (obs)
-                  *AOD_args,    # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
-                  end_member_array  # typical end-member spectra
-                  ),
-            # constrain values
-            bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(end_member_array)) # may not always want to constrain this (e.g. for PCs)
-    return fit.x
 
 
 def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_wvs: tuple[float, float]):
@@ -195,39 +212,77 @@ def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_w
     plt.tight_layout()
 
 
-def visualise_rolling_spectral_correlation(end_members, kernel_width, kernel_displacement):
+
+def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displacement):
+    """
+    Calculate the rolling spectral angle between a spectrum and a set of end members.
+
+    This function calculates the rolling spectral angle between a given spectrum and a set of end members
+    using a specified kernel width and displacement. It returns the wavelength pairs and mean angles used
+    in the calculation.
+
+    Parameters:
+    - wvs (np.ndarray): Array of wavelengths for the spectrum.
+    - spectra (np.ndarray): Array of spectra for the end members.
+    - wv_kernel_width (float | int): The width of the kernel used for calculating the rolling correlation.
+    - wv_kernel_displacement (float | int): The displacement of the kernel for each step in the rolling correlation calculation.
+    
+    Returns:
+    - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
+    - mean_corrs (list of float): List of mean spectral angles for each kernel.
+    """
+    wv_pairs = [(wv, wv+wv_kernel_width) for wv in np.arange(wvs.min(), wvs.max()-wv_kernel_width, wv_kernel_displacement)]
+
+    # calculate rolling spectral angles
+    mean_corrs = []
+    for wv_pair in wv_pairs:
+        ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
+        mean_angle, _ = spectral_angle_correlation(spectra[:, ~ids])
+        mean_corrs.append(mean_angle)
+
+    return wv_pairs, mean_corrs
+
+
+def visualise_rolling_spectral_correlation(endmembers, wv_kernel_width, wv_kernel_displacement):
+    """
+    Visualize the rolling spectral correlation for given end members.
+
+    This function plots the spectra of the end members and their rolling spectral correlation
+    using a specified kernel width and displacement. It also returns the wavelength pairs and
+    mean correlations used in the calculation.
+
+    Parameters:
+    - endmembers (dict): Dictionary of end member spectra, where keys are category names and values are pandas Series with wavelengths as index and reflectance values as data.
+    - wv_kernel_width (int): The width of the kernel used for calculating the rolling correlation.
+    - wv_kernel_displacement (int): The displacement of the kernel for each step in the rolling correlation calculation.
+
+    Returns:
+    - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
+    - mean_corrs (list of float): List of mean spectral angle correlations for each kernel.
+    """
     f, ax_spectra = plt.subplots(1, figsize=(12, 6))
     ax_correlation = ax_spectra.twinx()
 
-    choice_array = np.array([spectrum.values for spectrum in end_members.values()])
+    # extract wavelengths from index of endmember dictionary's first entry
+    wvs = next(iter(endmembers.values())).index
+    end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
+    wv_pairs, mean_corrs = calc_rolling_spectral_angle(wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement)
+    x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
 
     # plot endmember spectra
-    for cat, spectrum in end_members.items():
-        ax_spectra.plot(spectrum.index, end_members[cat], label=cat, alpha=0.4)
+    for cat, spectrum in endmembers.items():
+        ax_spectra.plot(wvs, endmembers[cat], label=cat, alpha=0.4)
 
-    wv_pairs = [(wv, wv+2*kernel_width) for wv in np.arange(spectrum.index.min(), spectrum.index.max(), kernel_displacement)]
-    x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
-    print(x_coords)
-    # plot kernel correlations
-    mean_corrs = []
-    for wv_pair in wv_pairs:
-        print(wv_pair)
-        ids = (spectrum.index > min(wv_pair)) & (spectrum.index < max(wv_pair))
-        mean, _ = spectral_angle_correlation(choice_array[:, ids])
-        mean_corrs.append(mean)
-
-    # ax_correlation.scatter(x_coords, mean_corrs, color='k', s=10, marker='x')
     # plot horizontal error bars, width kenrel_width
-    ax_correlation.errorbar(x_coords, mean_corrs, xerr=kernel_width/2, fmt='x', color='k', alpha=0.5, label="horizontal bars = kernel span")
+    ax_correlation.errorbar(x_coords, mean_corrs, xerr=wv_kernel_width/2, fmt='x', color='k', alpha=0.5, label="horizontal bars = kernel span")
     ax_correlation.legend()
     
     # formatting
-    ax_spectra.legend(bbox_to_anchor=(1.1, 0.7), title="End members")
-    ax_spectra.xaxis.set_major_locator(plt.MultipleLocator(10))
+    ax_spectra.legend(bbox_to_anchor=(1.1, 0.5), title="End members")
     ax_spectra.grid('major', axis='x')
     ax_spectra.set_ylabel("Reflectance")
     ax_spectra.set_xlabel('Wavelength (nm)')
-    ax_spectra.set_xlim(spectrum.index.min(), spectrum.index.max())
+    ax_spectra.set_xlim(wvs.min(), wvs.max())
 
     ax_correlation.set_ylabel("Mean spectral angle correlation:\nLow is more correlated")
     ax_correlation.grid('major', axis='y');
