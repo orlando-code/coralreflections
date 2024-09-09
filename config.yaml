@@ -1,0 +1,55 @@
+global_configurations:
+  spectra_fp: data/CORAL_validation_spectra.csv
+  spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv 
+
+configurations:
+  - 
+    aop_group_num: 1
+    nir_wavelengths:
+      - 750
+      - 1100
+    sensor_range:
+      - 450
+      - 690
+    scaler_type: zscore
+
+  - 
+    aop_group_num: 2
+    nir_wavelengths:
+      - 750
+      - 1100
+    sensor_range:
+      - 450
+      - 690
+    scaler_type: zscore
+
+
+endmember_map:
+  algae_crustose_coralline: 
+    - algCCA
+  algae_fleshy_brown: 
+    - algMacBrn
+  algae_fleshy_green: 
+    - algMacGrn
+    - algMacMix
+    - algMacUnk
+    - algCyano
+  algae_fleshy_red: 
+    - algMacRed
+  algae_turf: 
+    - algTurf
+  coral_blue: []
+  coral_brown: 
+    - crlCoral
+  mud: 
+    - sedMud
+  octocoral: 
+    - othOcto
+  sand: 
+    - sedSand
+    - crlBleach
+    - sedLimest
+    - sedRubble
+  seagrass: 
+    - othSeagr
+# other is ignored
