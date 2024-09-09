@@ -17,21 +17,40 @@ except:
     resource_dir = Path(__file__).resolve().parent / 'resources'
 
 
-# read in first AOP model (arbitrary choice), the functions looked less crazy than G2. Didn't look at G3.
-f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
-with open(f_AOP_model, 'r') as f:
-    start_found = False
-    skiprows = 0
-    while not start_found:
-        line = f.readline()
-        if line.startswith('wl,'):
-            start_found = True
-        else:
-            skiprows += 1
+def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
+    """Load AOP model for specified group number"""
+    f_AOP_model = resource_dir / f'AOP_models_Group_{group_num}.txt'
+    with open(f_AOP_model, 'r') as f:
+        start_found = False
+        skiprows = 0
+        while not start_found:
+            line = f.readline()
+            if line.startswith('wl,'):
+                start_found = True
+            else:
+                skiprows += 1
 
-# read in wavelengths as df
-AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
-AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
+    # read in wavelengths as df
+    AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
+    AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
+    return AOP_model
+    
+    
+# # read in first AOP model (arbitrary choice), the functions looked less crazy than G2. Didn't look at G3.
+# f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
+# with open(f_AOP_model, 'r') as f:
+#     start_found = False
+#     skiprows = 0
+#     while not start_found:
+#         line = f.readline()
+#         if line.startswith('wl,'):
+#             start_found = True
+#         else:
+#             skiprows += 1
+
+# # read in wavelengths as df
+# AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
+# AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
 
 
 ### PREPROCESSING
