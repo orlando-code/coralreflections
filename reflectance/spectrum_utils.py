@@ -1,6 +1,9 @@
 # general
 import numpy as np
 import pandas as pd
+from pathlib import Path
+from sklearn.decomposition import PCA
+
 
 # fitting
 from scipy.optimize import curve_fit, minimize
@@ -17,9 +20,22 @@ except:
     resource_dir = Path(__file__).resolve().parent / 'resources'
 
 
+def load_spectral_library(fp: Path="reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv") -> pd.DataFrame:
+    df = pd.read_csv(f, skiprows=1).set_index('wavelength')
+    df.columns = df.columns.astype(float)
+    return df.astype(float)
+
+
+def load_spectra(fp: Path="data/CORAL_validation_spectra.csv") -> pd.DataFrame:
+    """Load spectra from file"""
+    spectra = pd.read_csv(fp)
+    spectra.columns = spectra.columns.astype(float)
+    return spectra
+
+
 def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     """Load AOP model for specified group number"""
-    f_AOP_model = resource_dir / f'AOP_models_Group_{group_num}.txt'
+    f_AOP_model = resource_dir / f'AOP_models_Group_{aop_group_num}.txt'
     with open(f_AOP_model, 'r') as f:
         start_found = False
         skiprows = 0
@@ -201,6 +217,34 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
         mean_corrs.append(mean_angle)
 
     return wv_pairs, mean_corrs
+
+
+### END MEMBER CHARACTERISATION
+
+def mean_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None) -> dict:
+    """Calculate mean endmembers from spectral library."""
+    if classes is None:
+        classes = spectral_library.index.unique()
+        
+    endmembers = {}
+    for cat in classes:
+        endmembers[cat] = spectral_library.loc[cat].mean(axis=1)
+    
+    return endmembers
+
+
+def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_components: int=3) -> dict:
+    """Calculate PCA endmembers from spectral library."""
+    if classes is None:
+        classes = spectral_library.index.unique()
+        
+    pca = PCA(n_components=n_components)
+    pca.fit(spectral_library.T)
+    endmembers = {}
+    for i in range(n_components):
+        endmembers[f'PCA_{i}'] = pca.components_[i]
+    
+    return endmembers
 
 
 ### DEPRECATED ###
