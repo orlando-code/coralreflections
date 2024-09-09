@@ -2,16 +2,12 @@
 import numpy as np
 import pandas as pd
 
-# plotting
-import matplotlib.pyplot as plt
-from matplotlib.gridspec import GridSpec
-from matplotlib import ticker
-
 # fitting
 from scipy.optimize import curve_fit, minimize
 from scipy.interpolate import UnivariateSpline
 
 
+### LOADING
 # import resource data
 try:
     from importlib import resources
@@ -38,17 +34,13 @@ AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
 AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
 
 
-# # old attempts at weighting
-# w = end_member_array.std(axis=0)
-# w[0] = 1
-
-# w = 0.5 * np.exp(0.01 * (wv - 450))
-# w = 1 + 4 *  stats.norm.cdf(wv, loc=580, scale=20)
-
-def wrapper_with_args(i):
-    return _wrapper(i, prism_spectra, AOD_args)
+### PREPROCESSING
+def retrieve_subsurface_reflectance(spectra: pd.DataFrame) -> pd.DataFrame:
+    """Retrieve subsurface reflectance (formula from Lee et al. 1998)"""
+    return spectra_deglinted / (0.518 + 1.562 * spectra_deglinted)
 
 
+### PHYISCAL CALCULATIONS
 def sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c):
     """Radiative transfer model for sub-surface reflectance.
     bb_lambda and K_lambda are calculated as a function of wavelength using the AOP model.
@@ -72,7 +64,23 @@ def sub_surface_reflectance_Rb(wv, end_member_array, bb, K, H, AOD_args, *Rb_arg
     return sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
 
 
+### FITTING
 def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0.1, end_member_bounds: tuple = (0, np.inf)):
+    """
+    Wrapper function for minimisation of objective function.
+    
+    Parameters:
+    - i (int): Index of spectrum to fit.
+    - of (function): Objective function to minimise.
+    - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
+    - AOD_args (tuple): Tuple of backscatter and attenuation coefficients.
+    - end_member_array (np.ndarray): Array of end member spectra.
+    - Rb_init (float): Initial value for Rb.
+    - end_member_bounds (tuple): Bounds for end member values.
+    
+    Returns:
+    - np.ndarray: Fitted parameters.
+    """
     fit = minimize(of,
             # initial parameter values
             x0=[0.1, 0.1, 0] + [Rb_init] * len(end_member_array),
@@ -86,6 +94,7 @@ def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0
     return fit.x
 
 
+##### OBJECTIVE FUNCTIONS
 def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
     bb, K, H = x[:3]
     Rb_values = x[3:]
@@ -116,6 +125,7 @@ def weighted_spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_mem
     return -spectral_angle_corrs * spectral_angle(pred, obs)
     
 
+### SPECTRAL ANGLE
 def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
     """Compute spectral angle between two spectra."""
     dot_product = np.dot(a, b)
@@ -142,75 +152,6 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
     # Clip values to the valid range of arccos to handle numerical issues
     cos_theta_matrix = np.clip(cos_theta_matrix, -1.0, 1.0)
     return np.arccos(cos_theta_matrix)
-
-
-def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_wvs: tuple[float, float]):
-    """
-    Plot spline fits for a given spectrum with various smoothing factors.
-
-    Parameters:
-    - smoothing_factors (list[float]): List of smoothing factors to be used for spline fitting.
-    - spectrum (pd.Series): The spectrum data to be fitted, with the index representing wavelengths and values representing intensities.
-    - zoom_wvs (tuple[float, float]): Tuple specifying the wavelength range to zoom in on for the zoomed plot.
-
-    Returns:
-    - None
-    """
-    fig = plt.figure(figsize=(14, len(smoothing_factors)*3))
-    # one more plot than smoothing to also plot the original spectrum
-    gs = GridSpec(len(smoothing_factors)+1, 5, figure=fig)
-    fitted_ax = fig.add_subplot(gs[0, 0:4])
-    fitted_ax.plot(spectrum.index, spectrum.values, label="spectrum", c='grey', zorder=-2)
-    fitted_ax.grid(axis="x")
-
-    zoom_fitted_ax = fig.add_subplot(gs[0, 4], sharey=fitted_ax)
-    zoom_fitted_ax.plot(spectrum.index, spectrum.values, c='grey', zorder=-2)
-    # formatting
-    zoom_fitted_ax.set_xlim(*zoom_wvs)
-    plt.setp(zoom_fitted_ax.get_yticklabels(), visible=False)
-    zoom_fitted_ax.text(0.1, 0.1, f"zoomed spectrum", 
-                        transform=zoom_fitted_ax.transAxes, 
-                        fontsize=12, 
-                        verticalalignment='bottom', 
-                        horizontalalignment='left')
-
-    for j, sf in enumerate(smoothing_factors):
-        spline = UnivariateSpline(spectrum.index, spectrum.values, s=sf)
-        # plot spline fit
-        fitted_ax.plot(spectrum.index, spline(spectrum.index), label=f"spline fit, s={sf}", alpha=1, linestyle='--')
-        # plot zoomed spline fit
-        zoom_fitted_ax.plot(spectrum.index, spline(spectrum.index), label=f"spline fit, s={sf}", alpha=1, linestyle='--')
-        
-        # plot spectral residuals
-        spectrum_ax = fig.add_subplot(gs[j+1, 0:4], sharex=fitted_ax)
-        residuals = spectrum.values - spline(spectrum.index)
-        spectrum_ax.scatter(spectrum.index, residuals, label=f"s={sf} residuals", s=3)
-        spectrum_ax.hlines(0, spectrum.index.min(), spectrum.index.max(), color='r', linestyle='--', zorder=-2)
-        # formatting
-        spectrum_ax.set_xlim(spectrum.index.min(), spectrum.index.max())
-        spectrum_ax.grid(axis="x")
-        spectrum_ax.legend(loc="upper right")
-        spectrum_ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
-        spectrum_ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-        
-        # plot histograms of residuals
-        hist_ax = fig.add_subplot(gs[j+1, 4])
-        counts, bins, _ = hist_ax.hist(residuals, bins=20, orientation='horizontal')
-        hist_ax.hlines(0, 0, max(counts*1.1), color='r', linestyle='--')
-        #formatting
-        hist_ax.set_xlim(min(1.1*counts), max(1.1*counts))
-        hist_ax.yaxis.set_major_formatter(ticker.ScalarFormatter(useMathText=True))
-        hist_ax.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-
-    # tidying up
-    for k, ax in enumerate(fig.get_axes()):
-        if ax != spectrum_ax and ax != zoom_fitted_ax and k%2 == 0:
-            plt.setp(ax.get_xticklabels(), visible=False)
-    spectrum_ax.set_xlabel("wavelength (nm)")
-            
-    fitted_ax.legend(loc="upper right");
-    plt.tight_layout()
-
 
 
 def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displacement):
@@ -241,51 +182,6 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
         mean_corrs.append(mean_angle)
 
     return wv_pairs, mean_corrs
-
-
-def visualise_rolling_spectral_correlation(endmembers, wv_kernel_width, wv_kernel_displacement):
-    """
-    Visualize the rolling spectral correlation for given end members.
-
-    This function plots the spectra of the end members and their rolling spectral correlation
-    using a specified kernel width and displacement. It also returns the wavelength pairs and
-    mean correlations used in the calculation.
-
-    Parameters:
-    - endmembers (dict): Dictionary of end member spectra, where keys are category names and values are pandas Series with wavelengths as index and reflectance values as data.
-    - wv_kernel_width (int): The width of the kernel used for calculating the rolling correlation.
-    - wv_kernel_displacement (int): The displacement of the kernel for each step in the rolling correlation calculation.
-
-    Returns:
-    - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
-    - mean_corrs (list of float): List of mean spectral angle correlations for each kernel.
-    """
-    f, ax_spectra = plt.subplots(1, figsize=(12, 6))
-    ax_correlation = ax_spectra.twinx()
-
-    # extract wavelengths from index of endmember dictionary's first entry
-    wvs = next(iter(endmembers.values())).index
-    end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
-    wv_pairs, mean_corrs = calc_rolling_spectral_angle(wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement)
-    x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
-
-    # plot endmember spectra
-    for cat, spectrum in endmembers.items():
-        ax_spectra.plot(wvs, endmembers[cat], label=cat, alpha=0.4)
-
-    # plot horizontal error bars, width kenrel_width
-    ax_correlation.errorbar(x_coords, mean_corrs, xerr=wv_kernel_width/2, fmt='x', color='k', alpha=0.5, label="horizontal bars = kernel span")
-    ax_correlation.legend()
-    
-    # formatting
-    ax_spectra.legend(bbox_to_anchor=(1.1, 0.5), title="End members")
-    ax_spectra.grid('major', axis='x')
-    ax_spectra.set_ylabel("Reflectance")
-    ax_spectra.set_xlabel('Wavelength (nm)')
-    ax_spectra.set_xlim(wvs.min(), wvs.max())
-
-    ax_correlation.set_ylabel("Mean spectral angle correlation:\nLow is more correlated")
-    ax_correlation.grid('major', axis='y');
 
 
 ### DEPRECATED ###
@@ -337,3 +233,15 @@ def visualise_rolling_spectral_correlation(endmembers, wv_kernel_width, wv_kerne
 #     penalty = np.sum(np.array([Rb0, Rb1, Rb2, Rb3])**2)
 #     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
 #     return ssq + penalty_scale * penalty
+
+
+# def wrapper_with_args(i):
+#     return _wrapper(i, prism_spectra, AOD_args)
+
+
+# # old attempts at weighting
+# w = end_member_array.std(axis=0)
+# w[0] = 1
+
+# w = 0.5 * np.exp(0.01 * (wv - 450))
+# w = 1 + 4 *  stats.norm.cdf(wv, loc=580, scale=20)
