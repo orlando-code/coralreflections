@@ -1,3 +1,10 @@
+# general
+import numpy as np
+import pandas as pd
+
+# fitting
+from scipy.interpolate import UnivariateSpline
+
 # plotting
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
