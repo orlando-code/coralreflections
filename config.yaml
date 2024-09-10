@@ -1,8 +1,40 @@
-global_configurations:
+glob_cfg: # global configurations (same for all dynamic configurations)
   spectra_fp: data/CORAL_validation_spectra.csv
-  spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv 
+  spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv
+  validation_data_fp: data/CORAL_validation_data.csv
+  save_results: true
+  endmember_map:
+    algae_crustose_coralline: 
+      - algCCA
+    algae_fleshy_brown: 
+      - algMacBrn
+    algae_fleshy_green: 
+      - algMacGrn
+      - algMacMix
+      - algMacUnk
+      - algCyano
+    algae_fleshy_red: 
+      - algMacRed
+    algae_turf: 
+      - algTurf
+    coral_blue: []
+    coral_brown: 
+      - crlCoral
+    mud: 
+      - sedMud
+    octocoral: 
+      - othOcto
+    sand: 
+      - sedSand
+      - crlBleach
+      - sedLimest
+      - sedRubble
+    seagrass: 
+      - othSeagr
+  # other (['othClam', 'othInvert', 'othOther', 'othSponge', 'othUrchin']) is ignored
 
-configurations:
+# dynamic configurations (change from run to run)
+cfgs: # list of configurations
   - 
     aop_group_num: 1
     nir_wavelengths:
@@ -11,7 +43,10 @@ configurations:
     sensor_range:
       - 450
       - 690
-    scaler_type: zscore
+    endmember_type: mean
+    endmember_normalisation: false
+    spectra_normalisation: false
+    objective_fn: r2
 
   - 
     aop_group_num: 2
@@ -21,35 +56,9 @@ configurations:
     sensor_range:
       - 450
       - 690
-    scaler_type: zscore
+    endmember_type: mean
+    endmember_normalisation: false
+    spectra_normalisation: false
+    objective_fn: r2
 
 
-endmember_map:
-  algae_crustose_coralline: 
-    - algCCA
-  algae_fleshy_brown: 
-    - algMacBrn
-  algae_fleshy_green: 
-    - algMacGrn
-    - algMacMix
-    - algMacUnk
-    - algCyano
-  algae_fleshy_red: 
-    - algMacRed
-  algae_turf: 
-    - algTurf
-  coral_blue: []
-  coral_brown: 
-    - crlCoral
-  mud: 
-    - sedMud
-  octocoral: 
-    - othOcto
-  sand: 
-    - sedSand
-    - crlBleach
-    - sedLimest
-    - sedRubble
-  seagrass: 
-    - othSeagr
-# other is ignored
