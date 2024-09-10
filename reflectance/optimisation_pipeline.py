@@ -170,7 +170,7 @@ class OptPipe():
         self.get_run_id()
         fits_fp = file_ops.get_f(fits_dir_fp / f"fit_results_{self.run_id}.csv")
         # save csv
-        self.fit_results.to_csv(fits_fp)
+        self.fit_results.to_csv(fits_fp, index=False)
             
     def generate_results_summary(self):
         # calculate results summary
@@ -180,9 +180,18 @@ class OptPipe():
         # create dataframe with run parameters and summary metrics
         multiindex_columns = pd.MultiIndex.from_product([['configuration'], cfg_df.columns])
         cfg_df.columns = multiindex_columns
-        
+        # generate metadata
+        self.generate_run_metadata()
         # concatenate configuration and metrics summary        
-        self.results_summary = pd.concat([cfg_df, metrics_summary], axis=1)
+        self.results_summary = pd.concat([self.metadata_df, cfg_df, metrics_summary], axis=1)
+        self.save_results_summary()
+        
+    def generate_run_metadata(self):
+        # return date and time as multiindex df with metadata on first, header on second
+        datetime = pd.Timestamp.now('UTC')
+        # overkill for now, but may add further metadata in future
+        multiindex = pd.MultiIndex.from_product([['metadata'], ['datetime (UTC)']])
+        self.metadata_df = pd.DataFrame([[datetime]], columns=multiindex)
         
     def get_run_id(self):
         # get run id (maximum index in results_summary.csv)
@@ -193,16 +202,13 @@ class OptPipe():
         # save resulting fits to file
         results_dir_fp = file_ops.get_dir(file_ops.RESULTS_DIR_FP)
         # create results csv if doesn't already exist
-        results_fp = file_ops.get_f(results_dir_fp / "results_summary.csv")
+        results_fp = results_dir_fp / "results_summary.csv"
         # write header if new file
         if not results_fp.exists():
             self.results_summary.to_csv(results_fp, index=False)
-        # append results_summary to results_csv
-        self.results_summary.to_csv(results_fp, mode='a', header=False)
-        
-    def save_fits(self):
-        # save results summary to next row in csv
-        pass
+        else:
+            # append results_summary to results_csv
+            self.results_summary.to_csv(results_fp, mode='a', header=False, index=False)
         
     def run(self):
         """
@@ -226,38 +232,30 @@ class OptPipe():
         self.generate_spectra_from_fits()
         # calculate error metrics and append to results
         self.calculate_error_metrics()
-        # calculate summary of results
+        # calculate and save summary of results
         self.generate_results_summary()
-        # save resulting fit summary to file
-        self.save_results_summary()
-        # save resulting spectra and metrics to file
+        # calculate and save fits
         self.generate_fit_results()
-        # self.save_results()
         
 
-def run_pipeline(configurations):
+def run_pipeline(config_dict):
     """
     Run the optimisation pipeline for a range of parameterisation schema
     """
     results = []
-    glob_cfg = GlobalOptPipeConfig(configurations["glob_cfg"])
-    for conf in tqdm(configurations["cfgs"]):
-        run_cfg = RunOptPipeConfig(conf)
+    glob_cfg = GlobalOptPipeConfig(config_dict["glob_cfg"])
+    for cfg in tqdm(config_dict["cfgs"]):
+        run_cfg = RunOptPipeConfig(cfg)
         opt_pipe = OptPipe(glob_cfg, run_cfg)
-        print("ended")
-    #     opt_pipe.run()
+        # print("ended")
+        opt_pipe.run()
         
-    #     # append results to list
-    #     results.append(opt_pipe.results)
-        
-    # results_df = pd.DataFrame(results)
-    # results_df.to_csv("results.csv")
-    
 
+# optionally run as script
 if __name__ == "__main__":
-    # load configurations
-    configurations = file_ops.read_yaml("configurations.yaml")
-    run_pipeline(configurations)
+    # load config_dict
+    config_dict = file_ops.read_yaml(file_ops.CONFIG_FP)
+    run_pipeline(config_dict)
     
     
     
