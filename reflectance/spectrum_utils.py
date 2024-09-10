@@ -2,8 +2,12 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
-from sklearn.decomposition import PCA
+from dataclasses import asdict
 
+# stats
+from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler
+from sklearn.metrics import r2_score
 
 # fitting
 from scipy.optimize import curve_fit, minimize
@@ -21,7 +25,7 @@ except:
 
 
 def load_spectral_library(fp: Path="reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv") -> pd.DataFrame:
-    df = pd.read_csv(f, skiprows=1).set_index('wavelength')
+    df = pd.read_csv(fp, skiprows=1).set_index('wavelength')
     df.columns = df.columns.astype(float)
     return df.astype(float)
 
@@ -88,19 +92,19 @@ def sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c):
     return bb_lambda / K_lambda + (Rb - bb_lambda / K_lambda) * np.exp(-K_lambda * H)
 
 
-def Rb_endmember(end_member_array, *X):
+def Rb_endmember(endmember_array, *X):
     """Return linear combination of spectrum, weighted by X vector"""
-    return end_member_array.T.dot(X)
+    return endmember_array.T.dot(X)
 
 
-def sub_surface_reflectance_Rb(wv, end_member_array, bb, K, H, AOD_args, *Rb_args):
-    bb_m, bb_c, Kd_m, Kd_c = AOD_args
-    Rb = Rb_endmember(end_member_array, *Rb_args)
+def sub_surface_reflectance_Rb(wv, endmember_array, bb, K, H, AOP_args, *Rb_args):
+    bb_m, bb_c, Kd_m, Kd_c = AOP_args
+    Rb = Rb_endmember(endmember_array, *Rb_args)
     return sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
 
 
 ### FITTING
-def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0.1, end_member_bounds: tuple = (0, np.inf)):
+def _wrapper(i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.1, end_member_bounds: tuple = (0, np.inf)):
     """
     Wrapper function for minimisation of objective function.
     
@@ -108,8 +112,8 @@ def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0
     - i (int): Index of spectrum to fit.
     - of (function): Objective function to minimise.
     - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
-    - AOD_args (tuple): Tuple of backscatter and attenuation coefficients.
-    - end_member_array (np.ndarray): Array of end member spectra.
+    - AOP_args (tuple): Tuple of backscatter and attenuation coefficients.
+    - endmember_array (np.ndarray): Array of end member spectra.
     - Rb_init (float): Initial value for Rb.
     - end_member_bounds (tuple): Bounds for end member values.
     
@@ -118,30 +122,30 @@ def _wrapper(i, of, prism_spectra, AOD_args, end_member_array,  Rb_init: float=0
     """
     fit = minimize(of,
             # initial parameter values
-            x0=[0.1, 0.1, 0] + [Rb_init] * len(end_member_array),
+            x0=[0.1, 0.1, 0] + [Rb_init] * len(endmember_array),
             # extra arguments passsed to the object function (and its derivatives)
             args=(prism_spectra.loc[i], # spectrum to fit (obs)
-                  *AOD_args,    # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
-                  end_member_array  # typical end-member spectra
+                  *AOP_args,    # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
+                  endmember_array  # typical end-member spectra
                   ),
             # constrain values
-            bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(end_member_array)) # may not always want to constrain this (e.g. for PCs)
+            bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(endmember_array)) # may not always want to constrain this (e.g. for PCs)
     return fit.x
 
 
 ##### OBJECTIVE FUNCTIONS
-def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     bb, K, H = x[:3]
     Rb_values = x[3:]
-    Rb = Rb_endmember(end_member_array, *Rb_values)
+    Rb = Rb_endmember(endmember_array, *Rb_values)
     pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
     return spectral_angle(pred, obs)
 
 
-def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     bb, K, H = x[:3]
     Rb_values = x[3:]
-    Rb = Rb_endmember(end_member_array, *Rb_values)
+    Rb = Rb_endmember(endmember_array, *Rb_values)
     pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
     ssq = np.sum((obs - pred)**2)
     penalty = np.sum(np.array(Rb_values)**2)
@@ -149,16 +153,107 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
     return ssq + penalty_scale * penalty
 
 
-def weighted_spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     bb, K, H = x[:3]
     Rb_values = x[3:]
-    Rb = Rb_endmember(end_member_array, *Rb_values)
+    Rb = Rb_endmember(endmember_array, *Rb_values)
     pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
     # calculate rolling spectral angle between predicted and observed spectra
     spectral_angle_corrs = spectral_angle_correlation(Rb)
     # weight the regions of the spectra by the spectral angle correlation
     return -spectral_angle_corrs * spectral_angle(pred, obs)
     
+    
+# Define the helper function for generating spectra
+def generate_spectrum(fitted_params, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple) -> pd.Series:
+    bb_m, bb_c, Kd_m, Kd_c = AOP_args
+    bb, K, H = fitted_params.values[:3]
+    return sub_surface_reflectance_Rb(wvs, endmember_array, bb, K, H, AOP_args, *fitted_params.values[3:])
+
+
+def generate_spectra_from_fits(fits: pd.DataFrame, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple) -> pd.DataFrame:
+    spectra = fits.apply(
+        generate_spectrum, 
+        axis=1,
+        args=(wvs, endmember_array, AOP_args)
+    )
+    spectra_df = pd.DataFrame(spectra.tolist(), index=fits.index, columns=wvs)
+    return spectra_df
+
+
+def calculate_metrics(observed_spectra: pd.DataFrame, fitted_spectra: pd.DataFrame) -> pd.DataFrame:
+    """
+    Calculate the r2 and spectral angle between observed and fitted spectra and return as a DataFrame
+    """
+    def calculate_row_metrics(row, observed_spectra, fitted_spectra):
+        observed = observed_spectra.loc[row.name]
+        fitted = fitted_spectra.loc[row.name]
+        r2 = r2_score(observed, fitted)
+        sa = spectral_angle(observed.values, fitted.values)
+        return pd.Series({'r2': r2, 'spectral_angle': sa})
+    
+    metrics = observed_spectra.apply(
+        calculate_row_metrics, 
+        axis=1, 
+        args=(observed_spectra, fitted_spectra)
+    )
+    return metrics
+
+
+def generate_fit_results(fitted_params: pd.DataFrame, fitted_spectra: pd.DataFrame, metrics: pd.DataFrame) -> pd.DataFrame:
+    """Combine fitted parameters, spectra, and metrics into a single multiindex DataFrame"""
+    multiindex_tuples = [('fitted_params', param) for param in fitted_params.columns] \
+        + [('fitted_spectra', wl) for wl in fitted_spectra.columns] \
+        + [('metrics', metric) for metric in metrics.columns]
+    multiindex = pd.MultiIndex.from_tuples(multiindex_tuples)
+    df = pd.DataFrame(columns=multiindex)
+    
+    df.loc[:, ('fitted_params', slice(None))] = fitted_params.values
+    df.loc[:, ('fitted_spectra', slice(None))] = fitted_spectra.values
+    df.loc[:, ('metrics', slice(None))] = metrics.values
+    
+    return df
+    
+
+def generate_results_summary(metrics: pd.DataFrame) -> pd.DataFrame:
+    """Generate summary statistics from metrics DataFrame with a MultiIndex"""
+    
+    # Define first and second levels of the MultiIndex
+    metrics_list = metrics.columns  # First level
+    stats_list = ['count', 'mean', 'std', 'min', '25%', '50%', '75%', '95%', 'max']   # Second level
+    desc = metrics.describe().T
+    
+    multiindex = pd.MultiIndex.from_product([metrics_list, stats_list])
+    summary = pd.DataFrame(index=[0], columns=multiindex)
+
+    # calculate summary statistics for each metric
+    for metric in metrics.columns:
+        for stat in desc.columns:
+            summary[(metric, stat)] = desc.loc[metric, stat]
+        # additional custom metrics
+        summary[(metric, '95%')] = 1.96 * metrics[metric].std()
+    
+    return summary
+
+    
+def generate_results_df(configuration: dict, observed_spectra: pd.DataFrame, fitted_spectra: pd.DataFrame, error_metrics: pd.DataFrame):
+    """
+    Generate a DataFrame of results from the configuration, observed spectra, fitted spectra, and error metrics.
+    """
+    multiindex_tuples = [('true_spectra', wl) for wl in observed_spectra.columns] \
+        + [('fitted_spectra', wl) for wl in fitted_spectra.columns] \
+        + [('error_metrics', metric) for metric in error_metrics.columns]
+        # [('run_parameters', param) for param in asdict(configuration).keys()] \
+    multiindex = pd.MultiIndex.from_tuples(multiindex_tuples)
+    df = pd.DataFrame(columns=multiindex)
+    
+    # df.loc[:, ('run_parameters', slice(None))] = configuration
+    df.loc[:, ('true_spectra', slice(None))] = observed_spectra.values
+    df.loc[:, ('fitted_spectra', slice(None))] = fitted_spectra.values
+    df.loc[:, ('error_metrics', slice(None))] = error_metrics.values
+    
+    return df  
+
 
 ### SPECTRAL ANGLE
 def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
@@ -219,16 +314,36 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
     return wv_pairs, mean_corrs
 
 
+def instantiate_scaler(scaler_type: str):
+    """Instantiate scaler"""
+    if scaler_type == "zscore":
+        scaler = StandardScaler()
+    elif scaler_type == "minmax":
+        scaler = MinMaxScaler()
+    elif scaler_type == "robust":
+        scaler = RobustScaler()
+    elif scaler_type == "maxabs":
+        scaler = MaxAbsScaler()
+    else:
+        raise ValueError("Scaler not recognised")
+        
+    return scaler    
+    
+def normalise_spectra(spectra: pd.DataFrame, scaler_type: str) -> pd.DataFrame:
+    scaler = instantiate_scaler(scaler_type)
+    return pd.DataFrame(scaler.fit_transform(spectra.T).T, index=spectra.index, columns=spectra.columns)
+
 ### END MEMBER CHARACTERISATION
 
-def mean_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None) -> dict:
+def mean_endmembers(spectral_library_df: pd.DataFrame, classes: list[str]=None) -> dict:
     """Calculate mean endmembers from spectral library."""
     if classes is None:
-        classes = spectral_library.index.unique()
+        classes = spectral_library_df.index.unique()
         
     endmembers = {}
     for cat in classes:
-        endmembers[cat] = spectral_library.loc[cat].mean(axis=1)
+        ind = spectral_library_df.index == cat
+        endmembers[cat] = spectral_library_df.loc[ind].mean(axis=0)
     
     return endmembers
 
@@ -276,9 +391,9 @@ def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_co
 #     return bb_lambda / K_lambda + (Rb - bb_lambda / K_lambda) * np.exp(-K_lambda * H)
 
 
-# def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+# def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     # bb, K, H, Rb0, Rb1, Rb2, Rb3, Rb4, Rb5, Rb6, Rb7, Rb8, Rb9, Rb10 = x
-    # Rb = Rb_endmember(end_member_array, Rb0, Rb1, Rb2, Rb3, Rb4, Rb5, Rb6, Rb7, Rb8, Rb9, Rb10)
+    # Rb = Rb_endmember(endmember_array, Rb0, Rb1, Rb2, Rb3, Rb4, Rb5, Rb6, Rb7, Rb8, Rb9, Rb10)
     # pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
     
     # ssq = np.sum((obs - pred)**2)
@@ -287,9 +402,9 @@ def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_co
     # return ssq + penalty_scale * penalty
     
 
-# def r2_objective_fn_4(x, obs, bb_m, bb_c, Kd_m, Kd_c, end_member_array):
+# def r2_objective_fn_4(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
 #     bb, K, H, Rb0, Rb1, Rb2, Rb3 = x
-#     Rb = Rb_endmember(end_member_array, Rb0, Rb1, Rb2, Rb3)
+#     Rb = Rb_endmember(endmember_array, Rb0, Rb1, Rb2, Rb3)
 #     pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
     
 #     ssq = np.sum((obs - pred)**2)
@@ -299,11 +414,11 @@ def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_co
 
 
 # def wrapper_with_args(i):
-#     return _wrapper(i, prism_spectra, AOD_args)
+#     return _wrapper(i, prism_spectra, AOP_args)
 
 
 # # old attempts at weighting
-# w = end_member_array.std(axis=0)
+# w = endmember_array.std(axis=0)
 # w[0] = 1
 
 # w = 0.5 * np.exp(0.01 * (wv - 450))
