@@ -1,8 +1,9 @@
 import yaml
 from pathlib import Path
 
-DATA_DIR_FP = Path(__file__).resolve().parent / 'data'
-RESULTS_DIR_FP = Path(__file__).resolve().parent / 'results'
+DATA_DIR_FP = Path(__file__).resolve().parent.parent / 'data'
+RESULTS_DIR_FP = Path(__file__).resolve().parent.parent / 'results'
+CONFIG_FP = Path(__file__).resolve().parent.parent / 'config.yaml'
 
 def get_dir(dir_fp: str | Path) -> Path:
     dir_fp = Path(dir_fp)
