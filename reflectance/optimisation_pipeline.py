@@ -18,7 +18,7 @@ class GlobalOptPipeConfig:
     spectra_fp: str
     spectral_library_fp: str
     validation_data_fp: str
-    save_results: bool
+    save_fits: bool
     endmember_map: dict
     endmember_schema: dict
     
@@ -26,7 +26,7 @@ class GlobalOptPipeConfig:
         self.spectra_fp = conf["spectra_fp"]
         self.spectral_library_fp = conf["spectral_library_fp"]
         self.validation_data_fp = conf["validation_data_fp"]
-        self.save_results = conf["save_results"]
+        self.save_fits = conf["save_fits"]
         self.endmember_map = conf["endmember_map"]
         self.endmember_schema = conf["endmember_schema"]
         
@@ -206,8 +206,9 @@ class OptPipe():
         # find maximum index in results_summary and create fp
         self.get_run_id()
         fits_fp = file_ops.get_f(fits_dir_fp / f"fit_results_{self.run_id}.csv")
-        # save to csv
-        self.fit_results.to_csv(fits_fp, index=False)
+        if self.save_fits:
+            # save to csv if specified
+            self.fit_results.to_csv(fits_fp, index=False)
             
     def generate_results_summary(self):
         # TODO: arrangement of method?
