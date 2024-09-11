@@ -5,7 +5,8 @@ from pathlib import Path
 from dataclasses import asdict
 
 # stats
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, TruncatedSVD, NMF, FastICA, KernelPCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler
 from sklearn.metrics import r2_score
 
@@ -25,7 +26,10 @@ except:
 
 
 def load_spectral_library(fp: Path="reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv") -> pd.DataFrame:
-    df = pd.read_csv(fp, skiprows=1).set_index('wavelength')
+    df = pd.read_csv(fp, skiprows=1)
+    # correct column naming
+    df.rename(columns={'wavelength': 'class'}, inplace=True)
+    df.set_index('class', inplace=True)
     df.columns = df.columns.astype(float)
     return df.astype(float)
 
@@ -38,7 +42,9 @@ def load_spectra(fp: Path="data/CORAL_validation_spectra.csv") -> pd.DataFrame:
 
 
 def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
-    """Load AOP model for specified group number"""
+    """Load AOP model for specified group number
+    N.B. Group 3 file was modified to remove a duplicate row of column headers
+    """
     f_AOP_model = resource_dir / f'AOP_models_Group_{aop_group_num}.txt'
     with open(f_AOP_model, 'r') as f:
         start_found = False
@@ -54,23 +60,6 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
     AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
     return AOP_model
-    
-    
-# # read in first AOP model (arbitrary choice), the functions looked less crazy than G2. Didn't look at G3.
-# f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
-# with open(f_AOP_model, 'r') as f:
-#     start_found = False
-#     skiprows = 0
-#     while not start_found:
-#         line = f.readline()
-#         if line.startswith('wl,'):
-#             start_found = True
-#         else:
-#             skiprows += 1
-
-# # read in wavelengths as df
-# AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
-# AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
 
 
 ### PREPROCESSING
@@ -104,7 +93,10 @@ def sub_surface_reflectance_Rb(wv, endmember_array, bb, K, H, AOP_args, *Rb_args
 
 
 ### FITTING
-def _wrapper(i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.1, end_member_bounds: tuple = (0, np.inf)):
+def _wrapper(
+    i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.0001, 
+    bb_bounds: tuple = (0, 0.41123), Kd_bounds: tuple = (0.01688, 3.17231), H_bounds: tuple = (0, 50),
+    end_member_bounds: tuple = (0, np.inf)):
     """
     Wrapper function for minimisation of objective function.
     
@@ -114,7 +106,10 @@ def _wrapper(i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.
     - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
     - AOP_args (tuple): Tuple of backscatter and attenuation coefficients.
     - endmember_array (np.ndarray): Array of end member spectra.
-    - Rb_init (float): Initial value for Rb.
+    - Rb_init (float): Initial value for Rb: can't be 0 since spectral angle is undefined.
+    - bb_bounds (tuple): Bounds for bb values.
+    - Kd_bounds (tuple): Bounds for Kd values.
+    - H_bounds (tuple): Bounds for H values.
     - end_member_bounds (tuple): Bounds for end member values.
     
     Returns:
@@ -129,7 +124,7 @@ def _wrapper(i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.
                   endmember_array  # typical end-member spectra
                   ),
             # constrain values
-            bounds=[(0, 0.41123), (0.01688, 3.17231), (0, 50)] + [end_member_bounds] * len(endmember_array)) # may not always want to constrain this (e.g. for PCs)
+            bounds=[bb_bounds, Kd_bounds, H_bounds] + [end_member_bounds] * len(endmember_array)) # may not always want to constrain this (e.g. for PCs)
     return fit.x
 
 
@@ -333,34 +328,60 @@ def normalise_spectra(spectra: pd.DataFrame, scaler_type: str) -> pd.DataFrame:
     scaler = instantiate_scaler(scaler_type)
     return pd.DataFrame(scaler.fit_transform(spectra.T).T, index=spectra.index, columns=spectra.columns)
 
+
 ### END MEMBER CHARACTERISATION
-
-def mean_endmembers(spectral_library_df: pd.DataFrame, classes: list[str]=None) -> dict:
+def mean_endmembers(spectral_library_df: pd.DataFrame, classes: list[str]=None) -> pd.DataFrame:
     """Calculate mean endmembers from spectral library."""
-    if classes is None:
-        classes = spectral_library_df.index.unique()
+    return spectral_library_df.groupby('class').mean()
+
+def median_endmembers(spectral_library_df: pd.DataFrame, classes: list[str]=None) -> pd.DataFrame:
+    """Calculate median endmembers from spectral library."""
+    return spectral_library_df.groupby('class').median()
+
+
+def instantiate_decomposer(method: str, n_components: int):
+    """Instantiate decomposition method"""
+    if method == 'pca':
+        decomposer = PCA(n_components=n_components)
+    elif method == 'svd':
+        decomposer = TruncatedSVD(n_components=n_components)
+    elif method == 'nmf':
+        decomposer = NMF(n_components=n_components, init='random', random_state=0)
+    elif method == 'ica':
+        decomposer = FastICA(n_components=n_components, random_state=0)
+    # elif method == 'kpca':    # doesn't have 'components'
+    #     decomposer = KernelPCA(n_components=n_components, kernel='linear')
+    # elif method == 'lda': # not doing a classification
+    #     decomposer = LDA(n_components=n_components)
+    else:
+        raise ValueError(f"Method {method} not recognised. Use 'pca', 'svd', 'nmf', 'ica', or 'kpca'.")
         
-    endmembers = {}
-    for cat in classes:
-        ind = spectral_library_df.index == cat
-        endmembers[cat] = spectral_library_df.loc[ind].mean(axis=0)
-    
-    return endmembers
+    return decomposer
 
 
-def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_components: int=3) -> dict:
-    """Calculate PCA endmembers from spectral library."""
-    if classes is None:
-        classes = spectral_library.index.unique()
-        
-    pca = PCA(n_components=n_components)
-    pca.fit(spectral_library.T)
-    endmembers = {}
-    for i in range(n_components):
-        endmembers[f'PCA_{i}'] = pca.components_[i]
-    
-    return endmembers
+def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
+    grouped_spectra = spectra.copy()
+    category_to_group = {category: group for group, categories in map_dict.items() for category in categories}
+    grouped_spectra.index = grouped_spectra.index.map(category_to_group)
+    return grouped_spectra
 
+
+def calculate_endmembers(spectral_library: pd.DataFrame, method: str='pca', n_components: int=3) -> pd.DataFrame:
+    """Calculate endmembers from spectral library using specified decomposition method."""
+    decomposer = instantiate_decomposer(method, n_components)
+    components = {}
+
+    for class_name, spectra in spectral_library.groupby('class'):
+        decomposer.fit(spectra)
+        for i in range(n_components):    
+            components[(class_name, f'{method.upper()}_{i+1}')] = decomposer.components_[i]
+
+    # Convert the dictionary to a DataFrame
+    components_df = pd.DataFrame(components)
+    components_df.columns = pd.MultiIndex.from_tuples(components_df.columns)
+    components_df.index = spectral_library.columns
+    components_df.index.name = 'wavelength'
+    return components_df.T
 
 ### DEPRECATED ###
 # # been surpassed by function for minimisation
@@ -413,13 +434,59 @@ def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_co
 #     return ssq + penalty_scale * penalty
 
 
+# # read in first AOP model (arbitrary choice), the functions looked less crazy than G2. Didn't look at G3.
+# f_AOP_model = resource_dir / 'AOP_models_Group_1.txt'
+# with open(f_AOP_model, 'r') as f:
+#     start_found = False
+#     skiprows = 0
+#     while not start_found:
+#         line = f.readline()
+#         if line.startswith('wl,'):
+#             start_found = True
+#         else:
+#             skiprows += 1
+
+# # read in wavelengths as df
+# AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index('wl')
+# AOP_model.columns = ['Kd_m', 'Kd_c', 'bb_m', 'bb_c']
+
+
 # def wrapper_with_args(i):
 #     return _wrapper(i, prism_spectra, AOP_args)
 
 
+### originally mean_endmembers
+    # if classes is None:
+#     classes = spectral_library_df.index.unique()
+    
+# endmembers = {}
+# for cat in classes:
+#     ind = spectral_library_df.index == cat
+#     endmembers[cat] = spectral_library_df.loc[ind].mean(axis=0)
+
+# return endmembers
+    
+    
+# def pca_endmembers(spectral_library: pd.DataFrame, classes: list[str]=None, n_components: int=3) -> dict:
+#     """Calculate PCA endmembers from spectral library."""
+#     if classes is None:
+#         classes = spectral_library.index.unique()
+        
+#     pca = PCA(n_components=n_components)
+#     pca.fit(spectral_library.T)
+#     endmembers = {}
+#     for i in range(n_components):
+#         endmembers[f'PCA_{i}'] = pca.components_[i]
+    
+#     return endmembers
+
+
+    
 # # old attempts at weighting
 # w = endmember_array.std(axis=0)
 # w[0] = 1
 
 # w = 0.5 * np.exp(0.01 * (wv - 450))
 # w = 1 + 4 *  stats.norm.cdf(wv, loc=580, scale=20)
+
+
