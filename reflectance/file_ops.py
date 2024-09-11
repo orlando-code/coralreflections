@@ -3,7 +3,11 @@ from pathlib import Path
 
 DATA_DIR_FP = Path(__file__).resolve().parent.parent / 'data'
 RESULTS_DIR_FP = Path(__file__).resolve().parent.parent / 'results'
+RESOURCES_DIR_FP = Path(__file__).resolve().parent / 'resources'
+TMP_DIR_FP = Path(__file__).resolve().parent.parent / 'tmp'
 CONFIG_FP = Path(__file__).resolve().parent.parent / 'config.yaml'
+
+
 
 def get_dir(dir_fp: str | Path) -> Path:
     dir_fp = Path(dir_fp)
