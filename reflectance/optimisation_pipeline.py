@@ -69,22 +69,18 @@ class OptPipe():
     def preprocess_spectra(self):
         """Correct for glint, calculate subsurface reflectance, crop to sensor range"""
         # fetch indices within NIR wavelength range
-        glint_inds = (self.raw_spectra.columns > min(self.cfg.nir_wavelengths)) & (self.raw_spectra.columns < max(self.cfg.nir_wavelengths))
-        spectra_deglinted = self.raw_spectra.subtract(self.raw_spectra.loc[:, glint_inds].mean(axis=1), axis=0)
+        spectra_deglinted = deglint_spectra(self.raw_spectra, self.cfg.nir_wavelengths)
         # subsurface reflectance
-        spectra_subsurface = spectra_deglinted / (0.518 + 1.562 * spectra_deglinted)
-        # crop to sensor range
-        crop_inds = (spectra_subsurface.columns > min(self.cfg.sensor_range)) & (spectra_subsurface.columns < max(self.cfg.sensor_range))
-        # return corrected and cropped spectra for investigation
-        self.spectra = spectra_subsurface.loc[:10, crop_inds]   # TEMP RESTRICTION FOR TESTING
-        
+        spectra_subsurface = self.retrieve_subsurface_reflectance(spectra_deglinted)
+        # crop to sensor range (with # TEMP RESTRICTION FOR TESTING)
+        self.spectra = spectrum_utils.crop_spectra_to_range(spectra_subsurface, self.cfg.sensor_range).loc[:10,:]
+        # normalise spectra if specified        
         if self.cfg.spectra_normalisation:
             self.spectra = spectrum_utils.normalise_spectra(self.spectra, self.cfg.spectra_normalisation)
 
     def preprocess_spectral_library(self):
         """Go from raw spectral library to analysis-ready endmembers i.e. crop to relevant wavelengths"""
-        crop_inds = (self.spectral_library.columns > min(self.cfg.sensor_range)) & (self.spectral_library.columns < max(self.cfg.sensor_range))
-        self.spectral_library = self.spectral_library.loc[:, crop_inds]
+        self.spectral_library = spectrum_utils.crop_spectra_to_range(self.spectral_library, self.cfg.sensor_range)
     
     def convert_classes(self):
         """Map validation data classes to endmember classes"""
@@ -108,16 +104,17 @@ class OptPipe():
             endmember_schema = self.retrieve_class_map()
             # self.endmember_schema = endmember_schema
             self.endmembers = spectrum_utils.group_classes(self.spectral_library, endmember_schema)
-        
-        if self.cfg.endmember_type == "mean":
-            self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
-        elif self.cfg.endmember_type == "median":
-            self.endmembers = spectrum_utils.median_endmembers(self.spectral_library)
-        elif self.cfg.endmember_type in ["pca", "nmf", "ica", "svd"]:
-            self.endmembers = spectrum_utils.calculate_endmembers(self.spectral_library, self.cfg.endmember_type)
-        else:
-            raise ValueError(f"Endmember type {self.cfg.endmember_type} not recognised")
-            
+
+        match self.cfg.endmember_type:
+            case "mean":
+                self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
+            case "median":
+                self.endmembers = spectrum_utils.median_endmembers(self.spectral_library)
+            case "pca" | "nmf" | "ica" | "svd":
+                self.endmembers = spectrum_utils.calculate_endmembers(self.spectral_library, "pca")
+            case _:
+                raise ValueError(f"Endmember type {self.cfg.endmember_type} not recognised")
+
         # if specified, normalise endmembers
         if self.cfg.endmember_normalisation:
             self.endmembers = spectrum_utils.normalise_spectra(self.endmembers, self.cfg.endmember_normalisation)
@@ -137,14 +134,16 @@ class OptPipe():
         self.spectral_library = spectrum_utils.load_spectral_library(self.gcfg.spectral_library_fp)
             
     def return_objective_fn(self):
-        if self.cfg.objective_fn == "r2":
-            return spectrum_utils.r2_objective_fn
-        elif self.cfg.objective_fn == "spectral_angle":
-            return spectrum_utils.spectral_angle_objective_fn
-        elif self.cfg.objective_fn == "spectral_angle_w1":
-            return spectrum_utils.spectral_angle_objective_fn_w1
-        else:
-            raise ValueError(f"Objective function {self.cfg.objective_fn} not recognised")
+        
+        match self.cfg.objective_fn:
+            case "r2":
+                return spectrum_utils.r2_objective_fn
+            case "spectral_angle":
+                return spectrum_utils.spectral_angle_objective_fn
+            case "spectral_angle_w1":
+                return spectrum_utils.spectral_angle_objective_fn_w1
+            case _:
+                raise ValueError(f"Objective function {self.cfg.objective_fn} not recognised")
         
     def fit_spectra(self):
         # create wrapper for function to allow parallel processing
@@ -293,3 +292,14 @@ if __name__ == "__main__":
     #         bb_m, bb_c, Kd_m, Kd_c = self.aop_args
     #         bb, K, H = row.values[:3]
     #         pred = spectrum_utils.sub_surface_reflectance_Rb(prism_spectra.columns, endmember_array, bb, K, H, AOP_args, *row.values[3:-2])
+
+## been replaced by case switching
+        # if self.cfg.endmember_type == "mean":
+        #     self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
+        # elif self.cfg.endmember_type == "median":
+        #     self.endmembers = spectrum_utils.median_endmembers(self.spectral_library)
+        # elif self.cfg.endmember_type in ["pca", "nmf", "ica", "svd"]:
+        #     self.endmembers = spectrum_utils.calculate_endmembers(self.spectral_library, self.cfg.endmember_type)
+        # else:
+        #     raise ValueError(f"Endmember type {self.cfg.endmember_type} not recognised")
+            

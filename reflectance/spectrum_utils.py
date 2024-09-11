@@ -63,9 +63,19 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
 
 
 ### PREPROCESSING
-def retrieve_subsurface_reflectance(spectra: pd.DataFrame) -> pd.DataFrame:
+def deglint_spectra(spectra, nir_wavelengths: list[float]=None) -> pd.DataFrame:
+    glint_inds = (spectra.columns > min(nir_wavelengths)) & (spectra.columns < max(nir_wavelengths))
+    return spectra.subtract(spectra.loc[:, glint_inds].mean(axis=1), axis=0)
+
+
+def retrieve_subsurface_reflectance(spectra: pd.DataFrame, constant: float=0.518, coeff: float=1.562) -> pd.DataFrame:
     """Retrieve subsurface reflectance (formula from Lee et al. 1998)"""
-    return spectra_deglinted / (0.518 + 1.562 * spectra_deglinted)
+    return spectra_deglinted / (constant + coeff * spectra_deglinted)
+
+
+def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
+    """Crop spectra to specified wavelength range"""
+    return spectra.loc[:, (spectra.columns > min(wv_range)) & (spectra.columns < max(wv_range))]
 
 
 ### PHYISCAL CALCULATIONS
@@ -150,6 +160,7 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
 
 def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     bb, K, H = x[:3]
+    bb, K, H, *Rb_values = x[:3]
     Rb_values = x[3:]
     Rb = Rb_endmember(endmember_array, *Rb_values)
     pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
@@ -311,18 +322,18 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
 
 def instantiate_scaler(scaler_type: str):
     """Instantiate scaler"""
-    if scaler_type == "zscore":
-        scaler = StandardScaler()
-    elif scaler_type == "minmax":
-        scaler = MinMaxScaler()
-    elif scaler_type == "robust":
-        scaler = RobustScaler()
-    elif scaler_type == "maxabs":
-        scaler = MaxAbsScaler()
-    else:
-        raise ValueError("Scaler not recognised")
-        
-    return scaler    
+    match scaler_type:
+        case "zscore":
+            return StandardScaler()
+        case "minmax":
+            return MinMaxScaler()
+        case "robust":
+            return RobustScaler()
+        case "maxabs":
+            return MaxAbsScaler()
+        case _:
+            raise ValueError(f"Scaler_type {scaler_type} not recognised")
+ 
     
 def normalise_spectra(spectra: pd.DataFrame, scaler_type: str) -> pd.DataFrame:
     scaler = instantiate_scaler(scaler_type)
@@ -341,22 +352,22 @@ def median_endmembers(spectral_library_df: pd.DataFrame, classes: list[str]=None
 
 def instantiate_decomposer(method: str, n_components: int):
     """Instantiate decomposition method"""
-    if method == 'pca':
-        decomposer = PCA(n_components=n_components)
-    elif method == 'svd':
-        decomposer = TruncatedSVD(n_components=n_components)
-    elif method == 'nmf':
-        decomposer = NMF(n_components=n_components, init='random', random_state=0)
-    elif method == 'ica':
-        decomposer = FastICA(n_components=n_components, random_state=0)
-    # elif method == 'kpca':    # doesn't have 'components'
-    #     decomposer = KernelPCA(n_components=n_components, kernel='linear')
-    # elif method == 'lda': # not doing a classification
-    #     decomposer = LDA(n_components=n_components)
-    else:
-        raise ValueError(f"Method {method} not recognised. Use 'pca', 'svd', 'nmf', 'ica', or 'kpca'.")
-        
-    return decomposer
+    
+    match method:
+        case 'pca':
+            return PCA(n_components=n_components)
+        case 'svd':
+            return TruncatedSVD(n_components=n_components)
+        case 'nmf':
+            return NMF(n_components=n_components, init='random', random_state=0)
+        case 'ica':
+            return FastICA(n_components=n_components, random_state=0)
+        case 'kpca':    # doesn't have 'components', but could be useful for focusing on different areas
+            return KernelPCA(n_components=n_components, kernel='linear')
+        case 'lda': # not doing a classification
+            return LDA(n_components=n_components)
+        case _:
+            raise ValueError(f"Method {method} not recognised. Use 'pca', 'svd', 'nmf', 'ica', or 'kpca'.")
 
 
 def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
