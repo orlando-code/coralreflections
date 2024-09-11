@@ -82,7 +82,7 @@ def plot_spline_fits(smoothing_factors: list[float], spectrum: pd.Series, zoom_w
     plt.tight_layout()
     
     
-def plot_rolling_spectral_correlation(endmembers, wv_kernel_width, wv_kernel_displacement):
+def plot_rolling_spectral_similarity(endmembers, wv_kernel_width, wv_kernel_displacement, similarity_fn):
     """
     Visualize the rolling spectral correlation for given end members.
 
@@ -106,7 +106,7 @@ def plot_rolling_spectral_correlation(endmembers, wv_kernel_width, wv_kernel_dis
     wvs = next(iter(endmembers.values())).index
     end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
     # TODO: should this calculation be within the plotting function?
-    wv_pairs, mean_corrs = spectrum_utils.calc_rolling_spectral_angle(wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement)
+    wv_pairs, mean_corrs = spectrum_utils.calc_rolling_similarity(wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn)
     x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
 
     # plot endmember spectra
