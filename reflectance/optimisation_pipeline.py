@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from tqdm.auto import tqdm
 import pandas as pd
 import numpy as np
+import logging
+import traceback
 
 # fitting
 import multiprocess as mp
@@ -16,6 +18,7 @@ class GlobalOptPipeConfig:
     spectra_fp: str
     spectral_library_fp: str
     validation_data_fp: str
+    save_results: bool
     endmember_map: dict
     endmember_schema: dict
     
@@ -23,6 +26,7 @@ class GlobalOptPipeConfig:
         self.spectra_fp = conf["spectra_fp"]
         self.spectral_library_fp = conf["spectral_library_fp"]
         self.validation_data_fp = conf["validation_data_fp"]
+        self.save_results = conf["save_results"]
         self.endmember_map = conf["endmember_map"]
         self.endmember_schema = conf["endmember_schema"]
         
@@ -40,19 +44,23 @@ class RunOptPipeConfig:
     bb_bounds: tuple[float]
     Kd_bounds: tuple[float]
     H_bounds: tuple[float]
+    solver: str
+    tol: float
     
     def __init__(self, conf: dict):
-        self.aop_group_num = conf["aop_group_num"]
-        self.nir_wavelengths = conf["nir_wavelengths"]
-        self.sensor_range = conf["sensor_range"]
-        self.endmember_type = conf["endmember_type"]
-        self.endmember_normalisation = conf["endmember_normalisation"]
-        self.endmember_class_schema = conf["endmember_class_schema"]
-        self.spectra_normalisation = conf["spectra_normalisation"]
-        self.objective_fn = conf["objective_fn"]
-        self.bb_bounds = conf["bb_bounds"]
-        self.Kd_bounds = conf["Kd_bounds"]
-        self.H_bounds = conf["H_bounds"]
+        self.aop_group_num = conf["processing"]["aop_group_num"]
+        self.nir_wavelengths = conf["processing"]["nir_wavelengths"]
+        self.sensor_range = conf["processing"]["sensor_range"]
+        self.endmember_type = conf["processing"]["endmember_type"]
+        self.endmember_normalisation = conf["processing"]["endmember_normalisation"]
+        self.endmember_class_schema = conf["processing"]["endmember_class_schema"]
+        self.spectra_normalisation = conf["processing"]["spectra_normalisation"]
+        self.objective_fn = conf["fitting"]["objective_fn"]
+        self.bb_bounds = conf["fitting"]["bb_bounds"]
+        self.Kd_bounds = conf["fitting"]["Kd_bounds"]
+        self.H_bounds = conf["fitting"]["H_bounds"]
+        self.solver = conf["fitting"]["solver"]
+        self.tol = conf["fitting"]["tol"]
     
     
 class OptPipe():
@@ -69,9 +77,9 @@ class OptPipe():
     def preprocess_spectra(self):
         """Correct for glint, calculate subsurface reflectance, crop to sensor range"""
         # fetch indices within NIR wavelength range
-        spectra_deglinted = deglint_spectra(self.raw_spectra, self.cfg.nir_wavelengths)
+        spectra_deglinted = spectrum_utils.deglint_spectra(self.raw_spectra, self.cfg.nir_wavelengths)
         # subsurface reflectance
-        spectra_subsurface = self.retrieve_subsurface_reflectance(spectra_deglinted)
+        spectra_subsurface = spectrum_utils.retrieve_subsurface_reflectance(spectra_deglinted)
         # crop to sensor range (with # TEMP RESTRICTION FOR TESTING)
         self.spectra = spectrum_utils.crop_spectra_to_range(spectra_subsurface, self.cfg.sensor_range).loc[:10,:]
         # normalise spectra if specified        
@@ -102,8 +110,8 @@ class OptPipe():
         # remap classes if necessary
         if self.cfg.endmember_class_schema:
             endmember_schema = self.retrieve_class_map()
-            # self.endmember_schema = endmember_schema
-            self.endmembers = spectrum_utils.group_classes(self.spectral_library, endmember_schema)
+            # rewrite spectral_library in classes in terms of class_map
+            self.spectral_library = spectrum_utils.group_classes(self.spectral_library, endmember_schema)
 
         match self.cfg.endmember_type:
             case "mean":
@@ -135,9 +143,19 @@ class OptPipe():
             
     def return_objective_fn(self):
         
-        match self.cfg.objective_fn:
+        match self.cfg.objective_fn.lower():
             case "r2":
                 return spectrum_utils.r2_objective_fn
+            case "euclidean_distance":
+                return spectrum_utils.euclidean_distance
+            case "mahalanobis_distance":
+                return spectrum_utils.mahalanobis_distance
+            case "spectral_similarity_gradient":
+                return spectrum_utils.spectral_similarity_gradient
+            case "spectral_information_divergence":
+                return spectrum_utils.spectral_information_divergence
+            case "sidsam":
+                return spectrum_utils.sidsam
             case "spectral_angle":
                 return spectrum_utils.spectral_angle_objective_fn
             case "spectral_angle_w1":
@@ -158,6 +176,8 @@ class OptPipe():
             bb_bounds=self.cfg.bb_bounds,
             Kd_bounds=self.cfg.Kd_bounds,
             H_bounds=self.cfg.H_bounds,
+            method=self.cfg.solver,
+            tol=self.cfg.tol
             )
         
         with mp.Pool() as pool:
@@ -190,18 +210,28 @@ class OptPipe():
         self.fit_results.to_csv(fits_fp, index=False)
             
     def generate_results_summary(self):
+        # TODO: arrangement of method?
         # calculate results summary
         metrics_summary = spectrum_utils.generate_results_summary(self.error_metrics)
         
+        # generate metadata
+        self.generate_run_metadata()
+        self.generate_glob_summary()
+        self.generate_cfg_summary()
+        if hasattr(self, 'e'):
+            self.generate_error_summary()
+        else:
+            self.error_df = None
+        # concatenate run summaries        
+        self.results_summary = pd.concat([self.metadata_df, self.glob_summary, self.cfg_df, metrics_summary, self.error_df], axis=1)
+        self.save_results_summary()
+    
+    def generate_cfg_summary(self):
         cfg_df = pd.DataFrame([self.cfg.__dict__])
         # create dataframe with run parameters and summary metrics
         multiindex_columns = pd.MultiIndex.from_product([['configuration'], cfg_df.columns])
         cfg_df.columns = multiindex_columns
-        # generate metadata
-        self.generate_run_metadata()
-        # concatenate configuration and metrics summary        
-        self.results_summary = pd.concat([self.metadata_df, cfg_df, metrics_summary], axis=1)
-        self.save_results_summary()
+        self.cfg_df = cfg_df
         
     def generate_run_metadata(self):
         # return date and time as multiindex df with metadata on first, header on second
@@ -210,11 +240,24 @@ class OptPipe():
         multiindex = pd.MultiIndex.from_product([['metadata'], ['datetime (UTC)']])
         self.metadata_df = pd.DataFrame([[datetime]], columns=multiindex)
         
+    def generate_glob_summary(self):
+        # select keys of glob_cfg to include in summary
+        glob_summary = {k: v for k, v in self.gcfg.__dict__.items() if k not in ["endmember_map", "endmember_schema"]}
+        # create dataframe
+        glob_summary_df = pd.DataFrame([glob_summary])
+        # create multiindex columns
+        multiindex_columns = pd.MultiIndex.from_product([['global_configuration'], glob_summary_df.columns])
+        glob_summary_df.columns = multiindex_columns
+        self.glob_summary = glob_summary_df
+        
     def get_run_id(self):
         # get run id (maximum index in results_summary.csv)
-        summary_csv = pd.read_csv(file_ops.get_f(file_ops.RESULTS_DIR_FP / "results_summary.csv"))
-        self.run_id = summary_csv.index.max()
-        
+        try:
+            summary_csv = pd.read_csv(file_ops.get_f(file_ops.RESULTS_DIR_FP / "results_summary.csv"))
+            self.run_id = summary_csv.index.max()
+        except Exception:
+            self.run_id = 1
+
     def save_results_summary(self):
         # save resulting fits to file
         results_dir_fp = file_ops.get_dir(file_ops.RESULTS_DIR_FP)
@@ -224,57 +267,75 @@ class OptPipe():
         if not results_fp.exists():
             self.results_summary.to_csv(results_fp, index=False)
         else:
-            # append results_summary to results_csv
+            # append results_summary to results_csv file
             self.results_summary.to_csv(results_fp, mode='a', header=False, index=False)
+    
+    def generate_error_summary(self):
+        error_message = f"Error in {self.e_step}: {str(self.e)}\n{traceback.format_exc()}"
+        logging.error(error_message)
+        self.get_run_id()
+        # Append the error message to the results summary
+        error_df = pd.DataFrame([[self.run_id, self.e_step, error_message]], columns=['run_id', 'step', 'error_message'])
+        error_df.columns = pd.MultiIndex.from_product([['error'], error_df.columns])
+        self.error_df = error_df
         
+
     def run(self):
         """
         Runs the optimisation pipeline
         """
-        # load spectra
-        self.load_spectra()
-        # preprocess observed spectra, normalising if specified
-        self.preprocess_spectra()
-        # load AOP model parameters
-        self.load_aop_model()
-        # load endmembers
-        self.load_spectral_library()
-        # preprocess endmembers
-        self.preprocess_spectral_library()
-        # generate specified endmember parameterisation, normalising if specified
-        self.characterise_endmembers()
-        # fit normalised spectra using specified objective function
-        self.fit_spectra()
-        # calculate resulting spectra
-        self.generate_spectra_from_fits()
-        # calculate error metrics and append to results
-        self.calculate_error_metrics()
-        # calculate and save summary of results
-        self.generate_results_summary()
-        # calculate and save fits
-        self.generate_fit_results()
+        pipeline_steps = [
+            ('load_spectra', self.load_spectra),
+            ('preprocess_spectra', self.preprocess_spectra),
+            ('load_aop_model', self.load_aop_model),
+            ('load_spectral_library', self.load_spectral_library),
+            ('preprocess_spectral_library', self.preprocess_spectral_library),
+            ('characterise_endmembers', self.characterise_endmembers),
+            ('fit_spectra', self.fit_spectra),
+            ('generate_spectra_from_fits', self.generate_spectra_from_fits),
+            ('calculate_error_metrics', self.calculate_error_metrics)
+        ]
+        # # execute pipeline and catch errors
+        # for step_name, step_method in pipeline_steps:
+        
+        #     step_method()
+        #     print('step_name', step_name) # useful for debugging since logging otherwise hides until end
+
+        # # generate results (these steps not guarded by error catcher intentionally)
+        # self.generate_results_summary()
+        # self.generate_fit_results()
+
+        # execute pipeline and catch errors
+        for step_name, step_method in pipeline_steps:
+            try:
+                step_method()
+            except Exception as e:
+                print('e', e) # useful for debugging since logging otherwise hides until end
+                print('step_name', step_name) # useful for debugging since logging otherwise hides until end
+                self.e = e
+                self.e_step = step_name
+        try:
+            # generate results (these steps not guarded by error catcher intentionally)
+            self.generate_results_summary()
+            self.generate_fit_results()
+            print(self.cfg)
+
+        except Exception as e:
+            print('e', e)
+            print(self.cfg)
         
 
-def run_pipeline(config_dict):
+def run_pipeline(glob_cfg, run_cfgs):
     """
     Run the optimisation pipeline for a range of parameterisation schema
     """
     results = []
-    glob_cfg = GlobalOptPipeConfig(config_dict["glob_cfg"])
-    for cfg in tqdm(config_dict["cfgs"]):
+    glob_cfg = GlobalOptPipeConfig(glob_cfg)
+    for cfg in tqdm(run_cfgs):
         run_cfg = RunOptPipeConfig(cfg)
         opt_pipe = OptPipe(glob_cfg, run_cfg)
         opt_pipe.run()
-        
 
-def generate_search_grid(all_config_params_dict):
-    """
-    Generate a search grid from a dictionary of lists of parameters
-    """
-    # create a list of dictionaries
-    search_grid = [dict(zip(all_config_params_dict.keys(), values)) for values in product(*all_config_params_dict.values())]
-    return search_grid
-        
 
 # optionally run as script
 if __name__ == "__main__":
@@ -302,4 +363,32 @@ if __name__ == "__main__":
         #     self.endmembers = spectrum_utils.calculate_endmembers(self.spectral_library, self.cfg.endmember_type)
         # else:
         #     raise ValueError(f"Endmember type {self.cfg.endmember_type} not recognised")
-            
+
+## been replaced by error-protected pipeline
+    # def run(self):
+    #     """
+    #     Runs the optimisation pipeline
+    #     """
+    #     # load spectra
+    #     self.load_spectra()
+    #     # preprocess observed spectra, normalising if specified
+    #     self.preprocess_spectra()
+    #     # load AOP model parameters
+    #     self.load_aop_model()
+    #     # load endmembers
+    #     self.load_spectral_library()
+    #     # preprocess endmembers
+    #     self.preprocess_spectral_library()
+    #     # generate specified endmember parameterisation, normalising if specified
+    #     self.characterise_endmembers()
+    #     # fit normalised spectra using specified objective function
+    #     self.fit_spectra()
+    #     # calculate resulting spectra
+    #     self.generate_spectra_from_fits()
+    #     # calculate error metrics and append to results
+    #     self.calculate_error_metrics()
+    #     # calculate and save summary of results
+    #     self.generate_results_summary()
+    #     # calculate and save fits
+    #     self.generate_fit_results()
+        
