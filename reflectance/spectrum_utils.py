@@ -3,12 +3,14 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from dataclasses import asdict
+from itertools import product
 
 # stats
 from sklearn.decomposition import PCA, TruncatedSVD, NMF, FastICA, KernelPCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, RobustScaler, MaxAbsScaler
 from sklearn.metrics import r2_score
+from scipy.spatial.distance import mahalanobis
 
 # fitting
 from scipy.optimize import curve_fit, minimize
@@ -70,7 +72,7 @@ def deglint_spectra(spectra, nir_wavelengths: list[float]=None) -> pd.DataFrame:
 
 def retrieve_subsurface_reflectance(spectra: pd.DataFrame, constant: float=0.518, coeff: float=1.562) -> pd.DataFrame:
     """Retrieve subsurface reflectance (formula from Lee et al. 1998)"""
-    return spectra_deglinted / (constant + coeff * spectra_deglinted)
+    return spectra / (constant + coeff * spectra)
 
 
 def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
@@ -104,9 +106,9 @@ def sub_surface_reflectance_Rb(wv, endmember_array, bb, K, H, AOP_args, *Rb_args
 
 ### FITTING
 def _wrapper(
-    i, of, prism_spectra, AOP_args, endmember_array,  Rb_init: float=0.0001, 
-    bb_bounds: tuple = (0, 0.41123), Kd_bounds: tuple = (0.01688, 3.17231), H_bounds: tuple = (0, 50),
-    end_member_bounds: tuple = (0, np.inf)):
+    i, of, method: str, tol: float, prism_spectra: pd.DataFrame, AOP_args: tuple, endmember_array: np.ndarray,  
+    Rb_init: float=0.0001, bb_bounds: tuple = (0, 0.41123), Kd_bounds: tuple = (0.01688, 3.17231), 
+    H_bounds: tuple = (0, 50), end_member_bounds: tuple = (0, np.inf)):
     """
     Wrapper function for minimisation of objective function.
     
@@ -168,8 +170,9 @@ def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_arr
     spectral_angle_corrs = spectral_angle_correlation(Rb)
     # weight the regions of the spectra by the spectral angle correlation
     return -spectral_angle_corrs * spectral_angle(pred, obs)
+
     
-    
+### RESULTS
 # Define the helper function for generating spectra
 def generate_spectrum(fitted_params, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple) -> pd.Series:
     bb_m, bb_c, Kd_m, Kd_c = AOP_args
@@ -261,14 +264,79 @@ def generate_results_df(configuration: dict, observed_spectra: pd.DataFrame, fit
     return df  
 
 
-### SPECTRAL ANGLE
-def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
-    """Compute spectral angle between two spectra."""
-    dot_product = np.dot(a, b)
-    norm_a = np.linalg.norm(a)
-    norm_b = np.linalg.norm(b)
-    cos_theta = dot_product / (norm_a * norm_b)
-    return np.arccos(np.clip(cos_theta, -1.0, 1.0))  # Clip values to avoid numerical issues
+### OBJECTIVE FUNCTIONS
+# TODO: make these proper objectives
+def euclidean_distance(X, Y):
+    """Calculate the Euclidean distance between two spectra X and Y."""
+    return np.linalg.norm(X - Y)
+
+
+def mahalanobis_distance(X, Y):
+    """Calculate the Mahalanobis distance between two spectra X and Y."""
+    # compute VI
+    VI = np.linalg.inv(np.cov(X.T))
+    return mahalanobis(X, Y, VI)
+    
+
+def spectral_similarity_gradient(X, Y):
+    """Calculate spectral similarity (GSSM) between the gradients of spectra X and Y."""
+    
+    # Calculate gradients and their means
+    delta_X, delta_Y = np.gradient(X), np.gradient(Y)
+    mean_X, mean_Y = np.mean(delta_X), np.mean(delta_Y)
+    
+    # Center the gradients
+    centered_X, centered_Y = delta_X - mean_X, delta_Y - mean_Y
+    
+    # Compute numerator and denominator for GSSM
+    numerator = np.sum(centered_X * centered_Y)
+    denominator = np.sqrt(np.sum(centered_X**2) * np.sum(centered_Y**2))
+    
+    return numerator / denominator if denominator != 0 else 0.0
+
+
+def spectral_information_divergence(X, Y):
+    """Calculate the Spectral Information Divergence (SID) between spectra X and Y."""
+    epsilon = 1e-10
+    p_X, p_Y = X / np.sum(X), Y / np.sum(Y)
+    p_X, p_Y = np.clip(p_X, epsilon, None), np.clip(p_Y, epsilon, None)
+    return np.sum(p_X * np.log(p_X / p_Y)) + np.sum(p_Y * np.log(p_Y / p_X))
+
+
+def sidsam(X, Y):
+    """Composite metric of spectral information divergence (SID) and spectral angle mapper (SAM/spectral angle)"""
+    return spectral_information_divergence(X, Y) * np.tan(spectral_angle(X, Y))
+    
+    
+def jmsam(X, Y):
+    """Composite metric of Jeffries-Matusita (JM) distance and the spectral angle mapper (SAM)"""
+    # JM Distance function
+    def JM_dist(BD_12):
+        return 2 * (1 - np.exp(-BD_12))
+
+    # Bhattacharyya Distance function
+    def BD_R1_R2(mu1, mu2, sigma1, sigma2):
+        # First term
+        term1 = (mu1 - mu2)**2 / (2 * (sigma1 + sigma2))
+        
+        # Second term
+        term2 = np.log(np.sqrt(sigma1 * sigma2) / ((sigma1 + sigma2) / 2))
+        
+        return 1/8 * term1 + 1/2 * term2
+
+    bd_12 = BD_R1_R2(np.mean(X), np.mean(Y), np.cov(X), np.cov(Y))
+    JM_dist_val = JM_dist(bd_12)
+    SAM_R1_R2 = spectral_angle(X, Y)
+    return JM_dist_val * np.tan(SAM_R1_R2)
+
+
+def spectral_angle(X: np.ndarray, Y: np.ndarray) -> float:
+    """Calculate the spectral angle between two spectra X and Y, handling possible zero division."""
+    norm_X, norm_Y = np.linalg.norm(X), np.linalg.norm(Y)
+    if norm_X == 0 or norm_Y == 0:
+        return None
+    cos_theta = np.clip(np.dot(X, Y) / (norm_X * norm_Y), -1, 1)
+    return np.arccos(cos_theta)
 
 
 def spectral_angle_correlation(spectra: np.ndarray) -> float:
@@ -290,7 +358,9 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
     return np.arccos(cos_theta_matrix)
 
 
-def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displacement):
+
+
+def calc_rolling_similarity(wvs, spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn):
     """
     Calculate the rolling spectral angle between a spectrum and a set of end members.
 
@@ -303,6 +373,7 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
     - spectra (np.ndarray): Array of spectra for the end members.
     - wv_kernel_width (float | int): The width of the kernel used for calculating the rolling correlation.
     - wv_kernel_displacement (float | int): The displacement of the kernel for each step in the rolling correlation calculation.
+    - similarity_fn (function): The similarity function to be applied to calculate the mean angle.
     
     Returns:
     - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
@@ -313,8 +384,9 @@ def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displac
     # calculate rolling spectral angles
     mean_corrs = []
     for wv_pair in wv_pairs:
-        ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
-        mean_angle, _ = spectral_angle_correlation(spectra[:, ~ids])
+        pair_ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
+        # mean_angle, _ = similarity_fn(spectra[:, ~pair_ids])
+        mean_angle = similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][1])
         mean_corrs.append(mean_angle)
 
     return wv_pairs, mean_corrs
@@ -394,6 +466,42 @@ def calculate_endmembers(spectral_library: pd.DataFrame, method: str='pca', n_co
     components_df.index.name = 'wavelength'
     return components_df.T
 
+
+
+def generate_config_dicts(nested_dict):
+    """
+    Generate a list of configuration dictionaries from a nested dictionary of lists of parameters.
+    """
+    def recursive_product(d):
+        if isinstance(d, dict):
+            keys, values = zip(*d.items())
+            if all(isinstance(v, list) for v in values):
+                for combination in product(*values):
+                    yield dict(zip(keys, combination))
+            else:
+                for combination in product(*[recursive_product(v) if isinstance(v, dict) else [(k, v)] for k, v in d.items()]):
+                    yield {k: v for d in combination for k, v in d.items()}
+        else:
+            yield d
+
+    def combine_dicts(dicts):
+        combined = {}
+        for d in dicts:
+            for k, v in d.items():
+                if k not in combined:
+                    combined[k] = v
+                else:
+                    if isinstance(combined[k], dict) and isinstance(v, dict):
+                        combined[k] = combine_dicts([combined[k], v])
+                    else:
+                        combined[k] = v
+        return combined
+
+    config_dicts = list(recursive_product(nested_dict))
+    return [combine_dicts([nested_dict, cfg]) for cfg in config_dicts]
+        
+        
+        
 ### DEPRECATED ###
 # # been surpassed by function for minimisation
 # def sub_surface_reflectance(wv, bb, K, H, Rb):
@@ -492,7 +600,46 @@ def calculate_endmembers(spectral_library: pd.DataFrame, method: str='pca', n_co
 #     return endmembers
 
 
+# def spectral_angle(a: np.ndarray, b: np.ndarray) -> float:
+#     """Compute spectral angle between two spectra."""
+#     dot_product = np.dot(a, b)
+#     norm_a = np.linalg.norm(a)
+#     norm_b = np.linalg.norm(b)
+#     cos_theta = dot_product / (norm_a * norm_b)
+#     return np.arccos(np.clip(cos_theta, -1.0, 1.0))  # Clip values to avoid numerical issues
+
+
+# def calc_rolling_spectral_angle(wvs, spectra, wv_kernel_width, wv_kernel_displacement):
+#     """
+#     Calculate the rolling spectral angle between a spectrum and a set of end members.
+
+#     This function calculates the rolling spectral angle between a given spectrum and a set of end members
+#     using a specified kernel width and displacement. It returns the wavelength pairs and mean angles used
+#     in the calculation.
+
+#     Parameters:
+#     - wvs (np.ndarray): Array of wavelengths for the spectrum.
+#     - spectra (np.ndarray): Array of spectra for the end members.
+#     - wv_kernel_width (float | int): The width of the kernel used for calculating the rolling correlation.
+#     - wv_kernel_displacement (float | int): The displacement of the kernel for each step in the rolling correlation calculation.
     
+#     Returns:
+#     - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
+#     - mean_corrs (list of float): List of mean spectral angles for each kernel.
+#     """
+#     wv_pairs = [(wv, wv+wv_kernel_width) for wv in np.arange(wvs.min(), wvs.max()-wv_kernel_width, wv_kernel_displacement)]
+
+#     # calculate rolling spectral angles
+#     mean_corrs = []
+#     for wv_pair in wv_pairs:
+#         ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
+#         mean_angle, _ = spectral_angle_correlation(spectra[:, ~ids])
+#         mean_corrs.append(mean_angle)
+
+#     return wv_pairs, mean_corrs
+
+
+
 # # old attempts at weighting
 # w = endmember_array.std(axis=0)
 # w[0] = 1
