@@ -1,0 +1,54 @@
+# dynamic configurations (change from run to run)
+cfgs: # list of configurations
+  - 
+    processing:
+      aop_group_num: 1
+      nir_wavelengths:
+        - 750
+        - 1100
+      sensor_range:
+        - 450
+        - 690
+      endmember_type: asdf
+      endmember_normalisation: minmax
+      endmember_class_schema: inorganic_organic
+      spectra_normalisation: false
+    fitting:
+      objective_fn: r2
+      bb_bounds:
+        - 0
+        - 0.4
+      Kd_bounds:
+        - 0
+        - 0.4
+      H_bounds:
+        - 0
+        - 30
+      solver: Nelder-Mead
+      tol: 1e-3
+
+  - 
+    processing:
+      aop_group_num: 1
+      nir_wavelengths:
+        - 750
+        - 1100
+      sensor_range:
+        - 450
+        - 690
+      endmember_type: mean
+      endmember_normalisation: minmax
+      endmember_class_schema: inorganic_organic
+      spectra_normalisation: false
+    fitting:
+      objective_fn: r2
+      bb_bounds:
+        - 0
+        - 0.4
+      Kd_bounds:
+        - 0
+        - 0.4
+      H_bounds:
+        - 0
+        - 30
+      solver: Nelder-Mead
