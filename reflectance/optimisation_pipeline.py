@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import logging
 import traceback
+from pathlib import Path
 
 # fitting
 import multiprocess as mp
@@ -206,7 +207,7 @@ class OptPipe():
         # find maximum index in results_summary and create fp
         self.get_run_id()
         fits_fp = file_ops.get_f(fits_dir_fp / f"fit_results_{self.run_id}.csv")
-        if self.save_fits:
+        if self.gcfg.save_fits:
             # save to csv if specified
             self.fit_results.to_csv(fits_fp, index=False)
             
@@ -326,11 +327,13 @@ class OptPipe():
             print(self.cfg)
         
 
-def run_pipeline(glob_cfg, run_cfgs):
+def run_pipeline(glob_cfg: dict, run_cfgs: dict):
     """
     Run the optimisation pipeline for a range of parameterisation schema
     """
     results = []
+    # resolve relative paths in the configuration to absolute paths
+    glob_cfg = file_ops.resolve_paths(glob_cfg, file_ops.BASE_DIR_FP)
     glob_cfg = GlobalOptPipeConfig(glob_cfg)
     for cfg in tqdm(run_cfgs):
         run_cfg = RunOptPipeConfig(cfg)
