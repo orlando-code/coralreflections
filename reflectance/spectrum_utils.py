@@ -16,6 +16,8 @@ from scipy.spatial.distance import mahalanobis
 from scipy.optimize import curve_fit, minimize
 from scipy.interpolate import UnivariateSpline
 
+# custom
+from reflectance import file_ops
 
 ### LOADING
 # import resource data
@@ -27,7 +29,7 @@ except:
     resource_dir = Path(__file__).resolve().parent / 'resources'
 
 
-def load_spectral_library(fp: Path="reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv") -> pd.DataFrame:
+def load_spectral_library(fp: Path=file_ops.RESOURCES_DIR_FP / "spectral_library_clean_v3_PRISM_wavebands.csv") -> pd.DataFrame:
     df = pd.read_csv(fp, skiprows=1)
     # correct column naming
     df.rename(columns={'wavelength': 'class'}, inplace=True)
@@ -36,7 +38,7 @@ def load_spectral_library(fp: Path="reflectance/resources/spectral_library_clean
     return df.astype(float)
 
 
-def load_spectra(fp: Path="data/CORAL_validation_spectra.csv") -> pd.DataFrame:
+def load_spectra(fp: Path=file_ops.DATA_DIR_FP / "CORAL_validation_spectra.csv") -> pd.DataFrame:
     """Load spectra from file"""
     spectra = pd.read_csv(fp)
     spectra.columns = spectra.columns.astype(float)
@@ -141,35 +143,54 @@ def _wrapper(
 
 
 ##### OBJECTIVE FUNCTIONS
-def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    bb, K, H = x[:3]
-    Rb_values = x[3:]
+
+
+def generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    bb, K, H, *Rb_values = x
     Rb = Rb_endmember(endmember_array, *Rb_values)
-    pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    return sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+
+def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
+    # calculate objective
     return spectral_angle(pred, obs)
+
+def instantiatiate_objective_fn(objective_fn: str):
+    match objective_fn:
+        case "r2":
+            return r2_objective_fn
+        case "spectral_angle":
+            return spectral_angle_objective_fn
+        case _:
+            raise ValueError(f"Objective function {objective_fn} not recognised. Use 'r2' or 'spectral_angle'.")
+        
 
 
 def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    bb, K, H = x[:3]
-    Rb_values = x[3:]
-    Rb = Rb_endmember(endmember_array, *Rb_values)
-    pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
+    # calculate objective
     ssq = np.sum((obs - pred)**2)
     penalty = np.sum(np.array(Rb_values)**2)
     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
     return ssq + penalty_scale * penalty
+# def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+#     pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
+#     # calculate objective
+#     ssq = np.sum((obs - pred)**2)
+#     penalty = np.sum(np.array(Rb_values)**2)
+#     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
+#     return ssq + penalty_scale * penalty
 
 
 def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    bb, K, H = x[:3]
-    bb, K, H, *Rb_values = x[:3]
-    Rb_values = x[3:]
-    Rb = Rb_endmember(endmember_array, *Rb_values)
-    pred = sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
     # calculate rolling spectral angle between predicted and observed spectra
     spectral_angle_corrs = spectral_angle_correlation(Rb)
     # weight the regions of the spectra by the spectral angle correlation
     return -spectral_angle_corrs * spectral_angle(pred, obs)
+
+
+
 
     
 ### RESULTS
