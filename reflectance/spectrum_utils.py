@@ -143,56 +143,119 @@ def _wrapper(
 
 
 ##### OBJECTIVE FUNCTIONS
-
-
-def generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    bb, K, H, *Rb_values = x
+def generate_predicted_spectrum(endmember_array, bb, K, H, AOP_args, *Rb_values):
     Rb = Rb_endmember(endmember_array, *Rb_values)
-    return sub_surface_reflectance(1, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
+    return sub_surface_reflectance(1, bb, K, H, Rb, *AOP_args)
+
 
 def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
-    # calculate objective
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
     return spectral_angle(pred, obs)
-
-def instantiatiate_objective_fn(objective_fn: str):
-    match objective_fn:
-        case "r2":
-            return r2_objective_fn
-        case "spectral_angle":
-            return spectral_angle_objective_fn
-        case _:
-            raise ValueError(f"Objective function {objective_fn} not recognised. Use 'r2' or 'spectral_angle'.")
-        
 
 
 def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
-    # calculate objective
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    # weighting
     ssq = np.sum((obs - pred)**2)
     penalty = np.sum(np.array(Rb_values)**2)
     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
     return ssq + penalty_scale * penalty
-# def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-#     pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
-#     # calculate objective
-#     ssq = np.sum((obs - pred)**2)
-#     penalty = np.sum(np.array(Rb_values)**2)
-#     penalty_scale = ssq / max(penalty.max(), 1)  # doesn't this just remove the Rb penalty?
-#     return ssq + penalty_scale * penalty
 
 
 def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    pred = generate_pred_spectrum(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
+    # TODO: fix this
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, AOP_args, *Rb_values)
     # calculate rolling spectral angle between predicted and observed spectra
     spectral_angle_corrs = spectral_angle_correlation(Rb)
     # weight the regions of the spectra by the spectral angle correlation
     return -spectral_angle_corrs * spectral_angle(pred, obs)
 
 
+def euclidean_distance(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Calculate the Euclidean distance between two spectra X and Y."""
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    return np.linalg.norm(obs - pred)
 
+
+def spectral_similarity_gradient(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Calculate spectral similarity (GSSM) between the gradients of spectra X and Y."""
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    # Calculate gradients and their means
+    X, Y = obs, pred
+    delta_X, delta_Y = np.gradient(X), np.gradient(Y)
+    mean_X, mean_Y = np.mean(delta_X), np.mean(delta_Y)
+    
+    # Center the gradients
+    centered_X, centered_Y = delta_X - mean_X, delta_Y - mean_Y
+    
+    # Compute numerator and denominator for GSSM
+    numerator = np.sum(centered_X * centered_Y)
+    denominator = np.sqrt(np.sum(centered_X**2) * np.sum(centered_Y**2))
+    
+    return numerator / denominator if denominator != 0 else 0.0
+    
+
+def spectral_information_divergence(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Calculate the Spectral Information Divergence (SID) between spectra X and Y."""
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    epsilon = 1e-10 # avoid dividing by zero
+    X, Y = obs, pred
+    p_X, p_Y = X / np.sum(X)+epsilon, Y / np.sum(Y)+epsilon
+    p_X, p_Y = np.clip(p_X, epsilon, None), np.clip(p_Y, epsilon, None)
+    return np.sum(p_X * np.log(p_X / p_Y)) + np.sum(p_Y * np.log(p_Y / p_X))
+
+
+def sidsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Composite metric of spectral information divergence (SID) and spectral angle mapper (SAM/spectral angle)"""
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    X, Y = obs, pred
+    return spectral_information_divergence(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array) * np.tan(spectral_angle(X, Y))
+    
+
+## BROKEN
+def mahalanobis_distance(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Calculate the Mahalanobis distance between two spectra X and Y."""
+    # TODO: fix: 0-dimensional array given. Array must be at least two-dimensional
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    # compute VI
+    VI = np.linalg.inv(np.cov(np.array(obs).reshape(-1, 1), rowvar=False))
+    return mahalanobis(obs, pred, VI)
 
     
+def jmsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    """Composite metric of Jeffries-Matusita (JM) distance and the spectral angle mapper (SAM)"""
+    # TODO: fix: e loop of ufunc does not support argument 0 of type NoneType which has no callable tan method
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values)
+    # JM Distance function
+    def JM_dist(BD_12):
+        return 2 * (1 - np.exp(-BD_12))
+
+    # Bhattacharyya Distance function
+    def BD_R1_R2(mu1, mu2, sigma1, sigma2):
+        # First term
+        term1 = (mu1 - mu2)**2 / (2 * (sigma1 + sigma2))
+        
+        # Second term
+        term2 = np.log(np.sqrt(sigma1 * sigma2) / ((sigma1 + sigma2) / 2))
+        
+        return 1/8 * term1 + 1/2 * term2
+
+    X, Y = obs, pred
+    bd_12 = BD_R1_R2(np.mean(X), np.mean(Y), np.cov(X), np.cov(Y))
+    JM_dist_val = JM_dist(bd_12)
+    SAM_R1_R2 = spectral_angle(X, Y)
+    return JM_dist_val * np.tan(SAM_R1_R2)
+
+
 ### RESULTS
 # Define the helper function for generating spectra
 def generate_spectrum(fitted_params, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple) -> pd.Series:
@@ -286,69 +349,7 @@ def generate_results_df(configuration: dict, observed_spectra: pd.DataFrame, fit
 
 
 ### OBJECTIVE FUNCTIONS
-# TODO: make these proper objectives
-def euclidean_distance(X, Y):
-    """Calculate the Euclidean distance between two spectra X and Y."""
-    return np.linalg.norm(X - Y)
 
-
-def mahalanobis_distance(X, Y):
-    """Calculate the Mahalanobis distance between two spectra X and Y."""
-    # compute VI
-    VI = np.linalg.inv(np.cov(X.T))
-    return mahalanobis(X, Y, VI)
-    
-
-def spectral_similarity_gradient(X, Y):
-    """Calculate spectral similarity (GSSM) between the gradients of spectra X and Y."""
-    
-    # Calculate gradients and their means
-    delta_X, delta_Y = np.gradient(X), np.gradient(Y)
-    mean_X, mean_Y = np.mean(delta_X), np.mean(delta_Y)
-    
-    # Center the gradients
-    centered_X, centered_Y = delta_X - mean_X, delta_Y - mean_Y
-    
-    # Compute numerator and denominator for GSSM
-    numerator = np.sum(centered_X * centered_Y)
-    denominator = np.sqrt(np.sum(centered_X**2) * np.sum(centered_Y**2))
-    
-    return numerator / denominator if denominator != 0 else 0.0
-
-
-def spectral_information_divergence(X, Y):
-    """Calculate the Spectral Information Divergence (SID) between spectra X and Y."""
-    epsilon = 1e-10
-    p_X, p_Y = X / np.sum(X), Y / np.sum(Y)
-    p_X, p_Y = np.clip(p_X, epsilon, None), np.clip(p_Y, epsilon, None)
-    return np.sum(p_X * np.log(p_X / p_Y)) + np.sum(p_Y * np.log(p_Y / p_X))
-
-
-def sidsam(X, Y):
-    """Composite metric of spectral information divergence (SID) and spectral angle mapper (SAM/spectral angle)"""
-    return spectral_information_divergence(X, Y) * np.tan(spectral_angle(X, Y))
-    
-    
-def jmsam(X, Y):
-    """Composite metric of Jeffries-Matusita (JM) distance and the spectral angle mapper (SAM)"""
-    # JM Distance function
-    def JM_dist(BD_12):
-        return 2 * (1 - np.exp(-BD_12))
-
-    # Bhattacharyya Distance function
-    def BD_R1_R2(mu1, mu2, sigma1, sigma2):
-        # First term
-        term1 = (mu1 - mu2)**2 / (2 * (sigma1 + sigma2))
-        
-        # Second term
-        term2 = np.log(np.sqrt(sigma1 * sigma2) / ((sigma1 + sigma2) / 2))
-        
-        return 1/8 * term1 + 1/2 * term2
-
-    bd_12 = BD_R1_R2(np.mean(X), np.mean(Y), np.cov(X), np.cov(Y))
-    JM_dist_val = JM_dist(bd_12)
-    SAM_R1_R2 = spectral_angle(X, Y)
-    return JM_dist_val * np.tan(SAM_R1_R2)
 
 
 def spectral_angle(X: np.ndarray, Y: np.ndarray) -> float:

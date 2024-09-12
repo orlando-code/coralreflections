@@ -157,6 +157,8 @@ class OptPipe():
                 return spectrum_utils.spectral_information_divergence
             case "sidsam":
                 return spectrum_utils.sidsam
+            case "jmsam":
+                return spectrum_utils.jmsam
             case "spectral_angle":
                 return spectrum_utils.spectral_angle_objective_fn
             case "spectral_angle_w1":
