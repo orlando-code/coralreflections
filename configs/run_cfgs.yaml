@@ -8,12 +8,12 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: asdf
+    endmember_type: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
   fitting:
-    objective_fn: r2
+    objective_fn: spectral_angle
     bb_bounds:
       - 0
       - 0.4
