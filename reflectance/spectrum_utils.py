@@ -5,6 +5,7 @@ from pathlib import Path
 
 # from dataclasses import asdict
 from itertools import product
+from functools import lru_cache
 
 # stats
 from sklearn.decomposition import PCA, TruncatedSVD, NMF, FastICA, KernelPCA
@@ -24,7 +25,8 @@ from scipy.optimize import minimize
 # from scipy.interpolate import UnivariateSpline
 
 # custom
-from reflectance import file_ops
+from reflectance.file_ops import RESOURCES_DIR_FP, DATA_DIR_FP
+
 
 """LOADING"""
 # import resource data
@@ -36,9 +38,9 @@ except ImportError:
     resource_dir = Path(__file__).resolve().parent / "resources"
 
 
+@lru_cache(maxsize=None)
 def load_spectral_library(
-    fp: Path = file_ops.RESOURCES_DIR_FP
-    / "spectral_library_clean_v3_PRISM_wavebands.csv",
+    fp: Path = RESOURCES_DIR_FP / "spectral_library_clean_v3_PRISM_wavebands.csv",
 ) -> pd.DataFrame:
     df = pd.read_csv(fp, skiprows=1)
     # correct column naming
@@ -48,15 +50,19 @@ def load_spectral_library(
     return df.astype(float)
 
 
+@lru_cache(maxsize=None)
 def load_spectra(
-    fp: Path = file_ops.DATA_DIR_FP / "CORAL_validation_spectra.csv",
+    fp: Path = DATA_DIR_FP / "CORAL_validation_spectra.csv",
 ) -> pd.DataFrame:
     """Load spectra from file"""
     spectra = pd.read_csv(fp)
+    # drop any empty columns
+    spectra.dropna(axis=1, how="all", inplace=True)
     spectra.columns = spectra.columns.astype(float)
     return spectra
 
 
+@lru_cache(maxsize=None)
 def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     """Load AOP model for specified group number
     N.B. Group 3 file was modified to remove a duplicate row of column headers
@@ -172,6 +178,60 @@ def _wrapper(
         + [end_member_bounds] * len(endmember_array),
     )  # may not always want to constrain this (e.g. for PCs)
     return fit.x
+
+
+# FITTING
+def minimizer(
+    of,
+    method: str,
+    tol: float,
+    prism_spectra: pd.DataFrame,
+    AOP_args: tuple,
+    endmember_array: np.ndarray,
+    Rb_init: float = 0.0001,
+    bb_bounds: tuple = (0, 0.41123),
+    Kd_bounds: tuple = (0.01688, 3.17231),
+    H_bounds: tuple = (0, 50),
+    end_member_bounds: tuple = (0, np.inf),
+):
+    """
+    Wrapper function for minimisation of objective function.
+
+    Parameters:
+    - i (int): Index of spectrum to fit.
+    - of (function): Objective function to minimise.
+    - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
+    - AOP_args (tuple): Tuple of backscatter and attenuation coefficients.
+    - endmember_array (np.ndarray): Array of end member spectra.
+    - Rb_init (float): Initial value for Rb: can't be 0 since spectral angle is undefined.
+    - bb_bounds (tuple): Bounds for bb values.
+    - Kd_bounds (tuple): Bounds for Kd values.
+    - H_bounds (tuple): Bounds for H values.
+    - end_member_bounds (tuple): Bounds for end member values.
+
+    Returns:
+    - np.ndarray: Fitted parameters.
+    """
+
+    results = []
+    for i in prism_spectra.index:
+        fit = minimize(
+            of,
+            # initial parameter values
+            x0=[0.1, 0.1, 0] + [Rb_init] * len(endmember_array),
+            # extra arguments passsed to the object function (and its derivatives)
+            args=(
+                prism_spectra.loc[i],  # spectrum to fit (obs)
+                *AOP_args,  # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
+                endmember_array,  # typical end-member spectra
+            ),
+            # constrain values
+            bounds=[bb_bounds, Kd_bounds, H_bounds]
+            + [end_member_bounds] * len(endmember_array),
+        )  # may not always want to constrain this (e.g. for PCs)
+        results.append(fit.x)
+
+    return results
 
 
 # OBJECTIVE FUNCTIONS
