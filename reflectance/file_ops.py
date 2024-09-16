@@ -2,9 +2,12 @@
 import yaml
 from pathlib import Path
 from itertools import product
+from dataclasses import dataclass
 
-# custom
-from reflectance import optimisation_pipeline as optpip
+# profiling
+import cProfile
+import pstats
+import io
 
 # define immutable path structure
 BASE_DIR_FP = Path(__file__).resolve().parent.parent
@@ -14,6 +17,56 @@ DATA_DIR_FP = BASE_DIR_FP / "data"
 RESULTS_DIR_FP = BASE_DIR_FP / "results"
 TMP_DIR_FP = BASE_DIR_FP / "tmp"
 CONFIG_DIR_FP = BASE_DIR_FP / "configs"
+
+
+@dataclass
+class GlobalOptPipeConfig:
+    spectra_fp: str
+    spectral_library_fp: str
+    validation_data_fp: str
+    save_fits: bool
+    endmember_map: dict
+    endmember_schema: dict
+
+    def __init__(self, conf: dict):
+        self.spectra_fp = conf["spectra_fp"]
+        self.spectral_library_fp = conf["spectral_library_fp"]
+        self.validation_data_fp = conf["validation_data_fp"]
+        self.save_fits = conf["save_fits"]
+        self.endmember_map = conf["endmember_map"]
+        self.endmember_schema = conf["endmember_schema"]
+
+
+@dataclass
+class RunOptPipeConfig:
+    aop_group_num: int
+    nir_wavelengths: tuple[float]
+    sensor_range: tuple[float]
+    endmember_type: str
+    endmember_normalisation: str | bool
+    endmember_class_schema: int
+    spectra_normalisation: str | bool
+    objective_fn: str
+    bb_bounds: tuple[float]
+    Kd_bounds: tuple[float]
+    H_bounds: tuple[float]
+    solver: str
+    tol: float
+
+    def __init__(self, conf: dict):
+        self.aop_group_num = conf["processing"]["aop_group_num"]
+        self.nir_wavelengths = conf["processing"]["nir_wavelengths"]
+        self.sensor_range = conf["processing"]["sensor_range"]
+        self.endmember_type = conf["processing"]["endmember_type"]
+        self.endmember_normalisation = conf["processing"]["endmember_normalisation"]
+        self.endmember_class_schema = conf["processing"]["endmember_class_schema"]
+        self.spectra_normalisation = conf["processing"]["spectra_normalisation"]
+        self.objective_fn = conf["fitting"]["objective_fn"]
+        self.bb_bounds = conf["fitting"]["bb_bounds"]
+        self.Kd_bounds = conf["fitting"]["Kd_bounds"]
+        self.H_bounds = conf["fitting"]["H_bounds"]
+        self.solver = conf["fitting"]["solver"]
+        self.tol = conf["fitting"]["tol"]
 
 
 def get_dir(dir_fp: str | Path) -> Path:
@@ -46,9 +99,9 @@ def instantiate_single_configs_instance(run_ind: int = 0):
     run_cfgs = read_yaml(CONFIG_DIR_FP / "run_cfgs.yaml")
     glob_cfg = read_yaml(CONFIG_DIR_FP / "glob_cfg.yaml")
     # resolve relative paths
-    glob_cfg = optpip.GlobalOptPipeConfig(resolve_paths(glob_cfg, BASE_DIR_FP))
+    glob_cfg = GlobalOptPipeConfig(resolve_paths(glob_cfg, BASE_DIR_FP))
     # select run configuration
-    run_cfgs = optpip.RunOptPipeConfig(run_cfgs[run_ind])
+    run_cfgs = RunOptPipeConfig(run_cfgs[run_ind])
 
     return glob_cfg, run_cfgs
 
@@ -120,3 +173,14 @@ def generate_config_dicts(nested_dict):
         final_config_dicts.append(combined_dict)
 
     return final_config_dicts
+
+
+def profile_step(step_name, step_method):
+    profiler = cProfile.Profile()
+    profiler.enable()
+    step_method()
+    profiler.disable()
+    s = io.StringIO()
+    ps = pstats.Stats(profiler, stream=s).sort_stats("cumtime")
+    ps.print_stats(10)  # Print top 10 slowest functions
+    print(f"Profile stats for {step_name}:\n{s.getvalue()}")
