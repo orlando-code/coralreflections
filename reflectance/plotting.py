@@ -9,6 +9,11 @@ from scipy.interpolate import UnivariateSpline
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib import ticker
+import plotly.graph_objs as go
+
+# from ipywidgets import interact
+
+import matplotlib.colors as mcolors
 
 # custom
 from reflectance import spectrum_utils
@@ -169,3 +174,67 @@ def plot_rolling_spectral_similarity(
         "Mean spectral angle correlation:\nLow is more correlated"
     )
     ax_correlation.grid("major", axis="y")
+
+
+def get_color_hex(cmap, value):
+    rgba = cmap(value)  # Get RGBA values
+    return mcolors.to_hex(rgba)  # Convert RGBA to hex
+
+
+def plot_interactive_coral_algae_spectrum(coral, algae, n_samples, coralgal_cmap):
+    fig = go.Figure()
+    wavelengths = coral.columns
+
+    for coral_prop in np.arange(0, 1.01, 0.05):
+        algae_prop = 1 - coral_prop
+        mean_spectrum_list = [
+            np.mean(
+                coral.sample(n=100).values * coral_prop
+                + algae.sample(n=100).values * algae_prop,
+                axis=0,
+            )
+            for _ in range(n_samples)
+        ]
+        for mean_spectrum in mean_spectrum_list:
+            fig.add_trace(
+                go.Scatter(
+                    visible=False,
+                    x=wavelengths,
+                    y=mean_spectrum,
+                    mode="lines",
+                    line=dict(color=get_color_hex(coralgal_cmap, coral_prop), width=1),
+                    opacity=0.3,
+                )
+            )
+
+    for i in range(n_samples):
+        fig.data[i].visible = True
+
+    steps = []
+    for j, coral_prop in enumerate(np.arange(0, 1.01, 0.05)):
+        step = dict(
+            method="update",
+            args=[{"visible": [i // n_samples == j for i in range(len(fig.data))]}],
+            label=f"{coral_prop:.2f}",
+        )
+        for i in range(n_samples):
+            fig.data[j * n_samples + i].showlegend = False
+        steps.append(step)
+
+    fig.update_layout(
+        sliders=[
+            dict(
+                active=0,
+                currentvalue={"prefix": "Coral Proportion: "},
+                pad={"t": 50},
+                steps=steps,
+            )
+        ],
+        xaxis_title="Wavelength (nm)",
+        yaxis_title="Reflectance",
+        xaxis=dict(range=[400, 700]),
+        yaxis=dict(range=[0, 0.2]),
+        title="Interactive Coral-Algae Spectrum Blending",
+    )
+
+    fig.show()
