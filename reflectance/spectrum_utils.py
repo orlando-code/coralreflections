@@ -20,7 +20,7 @@ from sklearn.metrics import r2_score
 from scipy.spatial.distance import mahalanobis
 
 # fitting
-from scipy.optimize import minimize
+from scipy.optimize import minimize, Bounds
 
 # from scipy.interpolate import UnivariateSpline
 
@@ -106,30 +106,6 @@ def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFram
     ]
 
 
-# PHYISCAL CALCULATIONS
-def sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c):
-    """Radiative transfer model for sub-surface reflectance.
-    bb_lambda and K_lambda are calculated as a function of wavelength using the AOP model.
-    Characterised by (fixed) coefficient and intercept from AOP model, with a scaling factor
-    set during optimisation.
-    Types: arrays/pd.Series
-    """
-    bb_lambda = bb * bb_m + bb_c
-    K_lambda = 2 * K * Kd_m + Kd_c
-    return bb_lambda / K_lambda + (Rb - bb_lambda / K_lambda) * np.exp(-K_lambda * H)
-
-
-def Rb_endmember(endmember_array, *X):
-    """Return linear combination of spectrum, weighted by X vector"""
-    return endmember_array.T.dot(X)
-
-
-def sub_surface_reflectance_Rb(wv, endmember_array, bb, K, H, AOP_args, *Rb_args):
-    bb_m, bb_c, Kd_m, Kd_c = AOP_args
-    Rb = Rb_endmember(endmember_array, *Rb_args)
-    return sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
-
-
 # FITTING
 def _wrapper(
     i,
@@ -152,10 +128,10 @@ def _wrapper(
     - i (int): Index of spectrum to fit.
     - of (function): Objective function to minimise.
     - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
-    - AOP_args (tuple): Tuple of backscatter and attenuation coefficients.
-    - endmember_array (np.ndarray): Array of end member spectra.
+    - AOP_args (tuple): Tuple of backscatter and attenuation coefficients as function of wavelength.
+    - endmember_array (np.ndarray): Array of end member spectra. Shape (N_endmembers, wavelengths)
     - Rb_init (float): Initial value for Rb: can't be 0 since spectral angle is undefined.
-    - bb_bounds (tuple): Bounds for bb values.
+    - bb_bounds (tuple): Bounds for bb values. TODO: Just range of wavelength instances?
     - Kd_bounds (tuple): Bounds for Kd values.
     - H_bounds (tuple): Bounds for H values.
     - end_member_bounds (tuple): Bounds for end member values.
@@ -165,7 +141,7 @@ def _wrapper(
     """
     fit = minimize(
         of,
-        # initial parameter values
+        # initial coefficient values
         x0=[0.1, 0.1, 0] + [Rb_init] * len(endmember_array),
         # extra arguments passsed to the object function (and its derivatives)
         args=(
@@ -174,13 +150,16 @@ def _wrapper(
             endmember_array,  # typical end-member spectra
         ),
         # constrain values
-        bounds=[bb_bounds, Kd_bounds, H_bounds]
-        + [end_member_bounds] * len(endmember_array),
+        bounds=[
+            Bounds(*bb_bounds, keep_feasible=True),  # TODO: updated recently
+            Bounds(*Kd_bounds, keep_feasible=True),
+            Bounds(*H_bounds, keep_feasible=True),
+        ]
+        + [Bounds(*end_member_bounds, keep_feasible=True)] * len(endmember_array),
     )  # may not always want to constrain this (e.g. for PCs)
     return fit.x
 
 
-# FITTING
 def minimizer(
     of,
     method: str,
@@ -232,6 +211,46 @@ def minimizer(
         results.append(fit.x)
 
     return results
+
+
+# PHYISCAL CALCULATIONS
+def sub_surface_reflectance(
+    wv: np.ndarray,
+    bb: float,
+    K: float,
+    H: float,
+    Rb: np.ndarray,
+    bb_m: np.ndarray,
+    bb_c: np.ndarray,
+    Kd_m: np.ndarray,
+    Kd_c: np.ndarray,
+) -> np.ndarray:
+    """Radiative transfer model for sub-surface reflectance.
+    bb_lambda and K_lambda are calculated as a function of wavelength using the AOP model.
+    Characterised by (fixed) coefficient and intercept from AOP model, with a scaling factor
+    set during optimisation.
+
+    Parameters:
+    - wv (np.ndarray): Array of wavelengths over which spectrum is defined.
+    - bb, K, H (floats): Coefficients for backscatter, attenuation, and depth. These are adjusted during fitting.
+    - Rb (np.ndarray): Array of end member reflectance values (seafloor reflectance spectrum).
+    - bb_m, bb_c, Kd_m, Kd_c (np.ndarray): Wavelength-dependent coefficients for backscatter and attenuation.
+    """
+    bb_lambda = bb * bb_m + bb_c
+    K_lambda = 2 * K * Kd_m + Kd_c
+    return bb_lambda / K_lambda + (Rb - bb_lambda / K_lambda) * np.exp(-K_lambda * H)
+
+
+def Rb_endmember(endmember_array, *Rb_values):
+    """Linear combination of endmember spectra weighted by scalar coefficients of Rb endmember spectra."""
+    return endmember_array.T.dot(Rb_values)
+
+
+def sub_surface_reflectance_Rb(wv, endmember_array, bb, K, H, AOP_args, *Rb_args):
+    """Retrieve reflectance at top of water column from physical model of light transport and benthic reflectance."""
+    bb_m, bb_c, Kd_m, Kd_c = AOP_args
+    Rb = Rb_endmember(endmember_array, *Rb_args)
+    return sub_surface_reflectance(wv, bb, K, H, Rb, bb_m, bb_c, Kd_m, Kd_c)
 
 
 # OBJECTIVE FUNCTIONS
@@ -391,20 +410,21 @@ def generate_spectra_from_fits(
     return spectra_df
 
 
+# TODO: have moved from nesting in calculate_metrics to help with performance
+def calculate_row_metrics(row, observed_spectra, fitted_spectra):
+    observed = observed_spectra.loc[row.name]
+    fitted = fitted_spectra.loc[row.name]
+    r2 = r2_score(observed, fitted)
+    sa = spectral_angle(observed.values, fitted.values)
+    return pd.Series({"r2": r2, "spectral_angle": sa})
+
+
 def calculate_metrics(
     observed_spectra: pd.DataFrame, fitted_spectra: pd.DataFrame
 ) -> pd.DataFrame:
     """
     Calculate the r2 and spectral angle between observed and fitted spectra and return as a DataFrame
     """
-
-    def calculate_row_metrics(row, observed_spectra, fitted_spectra):
-        observed = observed_spectra.loc[row.name]
-        fitted = fitted_spectra.loc[row.name]
-        r2 = r2_score(observed, fitted)
-        sa = spectral_angle(observed.values, fitted.values)
-        return pd.Series({"r2": r2, "spectral_angle": sa})
-
     metrics = observed_spectra.apply(
         calculate_row_metrics, axis=1, args=(observed_spectra, fitted_spectra)
     )
