@@ -247,17 +247,17 @@ class OptPipe:
         )
 
     def generate_fit_results(self):
-        # combine fitted_params with fitted_spectra and metrics
-        self.fit_results = spectrum_utils.generate_fit_results(
-            self.fitted_params, self.fitted_spectra, self.error_metrics
-        )
-        # generate filename from summary_results index
-        fits_dir_fp = file_ops.get_dir(file_ops.RESULTS_DIR_FP / "fits")
-        # find maximum index in results_summary and create fp
-        self.get_run_id()
-        fits_fp = file_ops.get_f(fits_dir_fp / f"fit_results_{self.run_id}.csv")
         if self.gcfg.save_fits:
-            # save to csv if specified
+            # combine fitted_params with fitted_spectra and metrics
+            self.fit_results = spectrum_utils.generate_fit_results(
+                self.fitted_params, self.fitted_spectra, self.error_metrics
+            )
+            # generate filename from summary_results index
+            fits_dir_fp = file_ops.get_dir(file_ops.RESULTS_DIR_FP / "fits")
+            # find maximum index in results_summary and create fp
+            self.get_run_id()
+            fits_fp = file_ops.get_f(fits_dir_fp / f"fit_results_{self.run_id}.csv")
+            # save to csv
             self.fit_results.to_csv(fits_fp, index=False)
 
     def generate_results_summary(self):
