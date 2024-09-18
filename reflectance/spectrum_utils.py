@@ -106,6 +106,16 @@ def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFram
     ]
 
 
+def convert_df_classes(df: pd.DataFrame, category_map: dict):
+    """Map validation data classes to endmember classes"""
+    # TODO: implement
+    endmembers = {}
+    for cat in category_map:
+        ind = df.index.isin(category_map[cat])
+        endmembers[cat] = df.loc[ind].sum(axis=0)
+    return pd.DataFrame(endmembers).T
+
+
 # FITTING
 def _wrapper(
     i,
@@ -139,24 +149,37 @@ def _wrapper(
     Returns:
     - np.ndarray: Fitted parameters.
     """
+    x0 = [0.1, 0.1, 0] + [0.1] * len(endmember_array)
+
+    if (
+        bb_bounds is not None
+        and Kd_bounds is not None
+        and H_bounds is not None
+        and end_member_bounds is not None
+    ):
+        bounds = Bounds(
+            [bb_bounds[0], Kd_bounds[0], H_bounds[0]]
+            + [end_member_bounds[0]] * len(endmember_array),
+            [bb_bounds[1], Kd_bounds[1], H_bounds[1]]
+            + [end_member_bounds[1]] * len(endmember_array),
+        )
+    else:
+        bounds = None
+
     fit = minimize(
         of,
-        # initial coefficient values
-        x0=[0.1, 0.1, 0] + [Rb_init] * len(endmember_array),
+        x0=x0,  # initial coefficient values
         # extra arguments passsed to the object function (and its derivatives)
         args=(
             prism_spectra.loc[i],  # spectrum to fit (obs)
             *AOP_args,  # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
             endmember_array,  # typical end-member spectra
         ),
-        # constrain values
-        bounds=[
-            Bounds(*bb_bounds, keep_feasible=True),  # TODO: updated recently
-            Bounds(*Kd_bounds, keep_feasible=True),
-            Bounds(*H_bounds, keep_feasible=True),
-        ]
-        + [Bounds(*end_member_bounds, keep_feasible=True)] * len(endmember_array),
-    )  # may not always want to constrain this (e.g. for PCs)
+        bounds=bounds,  # constrain values
+        method=method,  # fitting method
+        tol=tol,  # fit tolerance
+    )
+
     return fit.x
 
 
