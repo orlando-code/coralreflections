@@ -736,6 +736,36 @@ def generate_config_dicts(nested_dict):
     return [combine_dicts([nested_dict, cfg]) for cfg in config_dicts]
 
 
+# GENERAL
+
+
+def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
+    """Calculate range from centre and width."""
+    return centre - width / 2, centre + width / 2  # TODO: probably unnecessary
+
+
+def rgb_from_hyperspectral(
+    wvs: np.array,
+    values: np.array,
+    red_wvs: tuple[float],
+    green_wvs: tuple[float],
+    blue_wvs: tuple[float],
+) -> pd.DataFrame:
+    """Generate RGB image from hyperspectral data using specified wavelengths."""
+    red_val = values[(wvs > red_wvs[0]) & (wvs < red_wvs[1])].mean(axis=0)
+    green_val = values[(wvs > green_wvs[0]) & (wvs < green_wvs[1])].mean(axis=0)
+    blue_val = values[(wvs > blue_wvs[0]) & (wvs < blue_wvs[1])].mean(axis=0)
+
+    # Normalize colors to the range [0, 1]
+    # max_val = max(red_val, green_val, blue_val)
+    max_val = 2000
+    if max_val > 0:
+        red_val /= max_val
+        green_val /= max_val
+        blue_val /= max_val
+    return red_val, green_val, blue_val
+
+
 # DEPRECATED #
 # # been surpassed by function for minimisation
 # def sub_surface_reflectance(wv, bb, K, H, Rb):
