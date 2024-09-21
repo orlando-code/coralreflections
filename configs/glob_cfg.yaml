@@ -1,3 +1,4 @@
+spectra_source: spread_simulation
 spectra_fp: data/CORAL_validation_spectra.csv
 spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv
 validation_data_fp: data/CORAL_validation_data.csv

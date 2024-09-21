@@ -12,6 +12,18 @@
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
+  simulation:
+    N: 100
+    Rb_vals: [0,1]
+    n_depths: 10
+    depth_lims: [0, 10]
+    n_ks: 10
+    k_lims: [0, 0.4]
+    n_bbs: 10
+    bb_lims: [0.01, 0.03]
+    n_noise_levels: 10
+    noise_lims: [0.001, 0]
+    noise_ind: 0  # TODO: remove unnecessary noise vars
   fitting:
     objective_fn: spectral_angle
     bb_bounds:

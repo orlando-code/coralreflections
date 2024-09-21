@@ -21,6 +21,7 @@ CONFIG_DIR_FP = BASE_DIR_FP / "configs"
 
 @dataclass
 class GlobalOptPipeConfig:
+    spectra_source: str
     spectra_fp: str
     spectral_library_fp: str
     validation_data_fp: str
@@ -29,6 +30,7 @@ class GlobalOptPipeConfig:
     endmember_schema: dict
 
     def __init__(self, conf: dict):
+        self.spectra_source = conf["spectra_source"]
         self.spectra_fp = conf["spectra_fp"]
         self.spectral_library_fp = conf["spectral_library_fp"]
         self.validation_data_fp = conf["validation_data_fp"]
@@ -50,6 +52,7 @@ class RunOptPipeConfig:
     bb_bounds: tuple[float]
     Kd_bounds: tuple[float]
     H_bounds: tuple[float]
+    simulation: dict
     solver: str
     tol: float
 
@@ -65,6 +68,7 @@ class RunOptPipeConfig:
         self.bb_bounds = conf["fitting"]["bb_bounds"]
         self.Kd_bounds = conf["fitting"]["Kd_bounds"]
         self.H_bounds = conf["fitting"]["H_bounds"]
+        self.simulation = conf["simulation"]
         self.solver = conf["fitting"]["solver"]
         self.tol = conf["fitting"]["tol"]
 

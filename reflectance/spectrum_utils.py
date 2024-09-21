@@ -2,6 +2,7 @@
 import numpy as np
 import pandas as pd
 from pathlib import Path
+from tqdm.auto import tqdm
 
 # from dataclasses import asdict
 from itertools import product
@@ -126,6 +127,112 @@ def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
     grouped_spectra.index = grouped_spectra.index.map(category_to_group)
     grouped_spectra.index.name = "class"
     return grouped_spectra
+
+
+def simulate_spectra(
+    endmember_array: np.array,
+    AOP_args: tuple[np.array, np.array, np.array, np.array],
+    Rb_vals: tuple[float],
+    N: int = 10,
+    n_depths: int = 10,
+    depth_lims: tuple[float, float] = (0, 10),
+    n_ks: int = 10,
+    k_lims: tuple[float, float] = (0.1, 0.3),
+    n_bbs: int = 10,
+    bb_lims: tuple[float, float] = (0.01, 0.03),
+    n_noise_levels: int = 10,
+    noise_lims: tuple[float, float] = (1e-3, 0),
+) -> np.array:
+    """
+    Simulate N spectra with varying depth, K, bb, and noise levels.
+
+    Parameters:
+    - endmember_array (np.array): array of endmember spectra
+    - AOP_args (tuple): tuple of backscatter and attenuation coefficients as function of wavelength
+    - Rb_vals (tuple): Rb values for each endmember
+    - N (int): number of samples to generate
+    - n_depths (int): number of depths to generate
+    - depth_lims (tuple): min and max depth values
+    - n_ks (int): number of K values to generate
+    - k_lims (tuple): min and max K values
+    - n_bbs (int): number of bb values to generate
+    - bb_lims (tuple): min and max bb values
+    - n_noise_levels (int): number of noise levels to generate
+    - noise_lims (tuple): min and max noise levels
+
+    Returns:
+    - np.array: array of simulated spectra
+    """
+    # Rb = *Rb_vals
+    depths = np.linspace(*depth_lims, n_depths)
+    Ks = np.linspace(*k_lims, n_ks)
+    bbs = np.linspace(*bb_lims, n_bbs)
+    noise_levels = np.linspace(*noise_lims, n_noise_levels)
+
+    # initialise arrays to store results:
+    sim_spectra = np.zeros((N, n_depths, n_ks, n_bbs, n_noise_levels, len(wvs)))
+    metadata = pd.DataFrame(
+        {"depth": depths, "K": Ks, "bb": bbs, "noise": noise_levels}
+    )
+
+    # for each combination, create a simulated spectrum
+    total_iterations = N * n_depths * n_ks * n_bbs * n_noise_levels
+    with tqdm(total=total_iterations) as pbar:
+        for sample in range(N):
+            for d, depth in enumerate(depths):
+                for k, K in enumerate(Ks):
+                    for b, bb in enumerate(bbs):
+                        for n, nl in enumerate(noise_levels):
+                            sim = sub_surface_reflectance_Rb(
+                                wvs, endmember_array, bb, K, depth, AOP_args, *Rb_vals
+                            )  # TODO: AOP_args
+                            sim += np.random.normal(0, nl, len(sim))
+                            sim_spectra[sample, d, k, b, n] = sim
+                            pbar.update(1)
+    return sim_spectra, metadata
+
+
+def spread_simulate_spectra(
+    wvs: np.array,
+    endmember_array: np.array,
+    AOP_args: tuple[np.array, np.array, np.array, np.array],
+    Rb_vals: tuple[float],
+    N: int = 10,
+    n_noise_levels=10,
+    noise_lims: tuple[float, float] = (0, 1e-3),
+    depth_lims: tuple[float, float] = (0, 10),
+    k_lims: tuple[float, float] = (0.1, 0.3),
+    bb_lims: tuple[float, float] = (0.01, 0.03),
+) -> np.array:
+    # check that endmember and Rb_vals dimensions match
+    assert endmember_array.shape[0] == len(Rb_vals), (
+        f"Mismatch between number of endmembers ({endmember_array.shape[0]}) "
+        f"and number of Rb values ({len(Rb_vals)})"
+    )
+
+    depths = np.linspace(*depth_lims, N)
+    Ks = np.linspace(*k_lims, N)
+    bbs = np.linspace(*bb_lims, N)
+    noise_levels = np.linspace(*noise_lims, n_noise_levels)
+
+    # store in metadata
+    metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs})
+
+    # initialise arrays to store results
+    spread_sim_spectra = np.zeros(
+        (N, n_noise_levels, len(AOP_args[0]))
+    )  # TODO: slightly janky
+
+    for i in tqdm(range(N)):
+        for n, nl in enumerate(noise_levels):
+            sim = sub_surface_reflectance_Rb(
+                wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
+            )
+            # sim = sub_surface_reflectance_Rb(wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, Rb0, Rb1, Rb2, Rb3)
+            sim += np.random.normal(0, nl, len(sim))
+            spread_sim_spectra[i, n] = sim
+
+    return spread_sim_spectra, metadata
 
 
 # FITTING

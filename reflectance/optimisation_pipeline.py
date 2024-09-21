@@ -119,12 +119,51 @@ class OptPipe:
 
     def load_spectra(self):
         """Load spectra"""
-        self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
+        if self.gcfg.spectra_source == "simulation":
+            sim_params = self.cfg.simulation
+            if sim_params.simulation_type == "spread":
+                raw_spectra, spectra_metadata = spectrum_utils.spread_simulate_spectra(
+                    wvs=self.cfg.sensor_range,
+                    endmember_array=self.endmembers,
+                    AOP_args=self.aop_args,
+                    Rb_vals=sim_params["Rb_vals"],
+                    N=sim_params["N"],
+                    n_noise_levels=sim_params["n_noise_levels"],
+                    noise_lims=sim_params["noise_lims"],
+                    depth_lims=sim_params["depth_lims"],
+                    k_lims=sim_params["k_lims"],
+                    bb_lims=sim_params["bb_lims"],
+                )
+            elif sim_params.simulation_type == "regular":
+                sim_params = self.cfg.simulation
+                raw_spectra, spectra_metadata = spectrum_utils.simulate_spectra(
+                    endmember_array=self.endmembers,
+                    AOP_args=self.aop_args,
+                    Rb_vals=sim_params["Rb_vals"],
+                    N=sim_params["N"],
+                    n_depths=sim_params["n_depths"],
+                    depth_lims=sim_params["depth_lims"],
+                    n_ks=sim_params["n_ks"],
+                    k_lims=sim_params["k_lims"],
+                    n_bbs=sim_params["n_bbs"],
+                    bb_lims=sim_params["bb_lims"],
+                    n_noise_levels=sim_params["n_noise_levels"],
+                    noise_lims=sim_params["noise_lims"],
+                )  # TODO: handle metadata
+            # reshape array and metadata to two dataframes
+            self.raw_spectra = pd.DataFrame(
+                raw_spectra.reshape(-1, raw_spectra.shape[-1])
+            )
+            self.spectra_metadata = metadata
+        else:
+            self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
 
     def load_aop_model(self):
         """Load the AOP model dependent on the specified group"""
         self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
-        aop_sub = self.aop_model.loc[self.spectra.columns]
+        aop_sub = self.aop_model.loc[
+            min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+        ]
         self.aop_args = (
             aop_sub.bb_m.values,
             aop_sub.bb_c.values,
@@ -368,12 +407,12 @@ class OptPipe:
         """
 
         pipeline_steps = [
-            ("load_spectra", self.load_spectra),
-            ("preprocess_spectra", self.preprocess_spectra),
             ("load_aop_model", self.load_aop_model),
             ("load_spectral_library", self.load_spectral_library),
             ("preprocess_spectral_library", self.preprocess_spectral_library),
             ("characterise_endmembers", self.characterise_endmembers),
+            ("load_spectra", self.load_spectra),
+            ("preprocess_spectra", self.preprocess_spectra),
             ("fit_spectra", self.fit_spectra),
             # ("fit_spectra", self.profile_fit_spectra),
             ("generate_spectra_from_fits", self.generate_spectra_from_fits),
@@ -387,7 +426,7 @@ class OptPipe:
                 # profile_step(step_name, step_method)
             except Exception as e:
                 print(
-                    "e", e
+                    "e:", e
                 )  # useful for debugging since logging otherwise hides until end
                 print(
                     "step_name", step_name
