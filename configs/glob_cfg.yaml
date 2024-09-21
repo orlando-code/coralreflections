@@ -1,8 +1,8 @@
-spectra_source: spread_simulation
+spectra_source: simulation
 spectra_fp: data/CORAL_validation_spectra.csv
 spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv
 validation_data_fp: data/CORAL_validation_data.csv
-save_fits: false
+save_fits: true
 endmember_map:
   algae_crustose_coralline: 
     - algCCA
@@ -33,6 +33,20 @@ endmember_map:
     - othSeagr
 # other (['othClam', 'othInvert', 'othOther', 'othSponge', 'othUrchin']) is ignored
 endmember_schema:
+  - three_endmember:
+      algae:
+        - algae_fleshy_brown
+        - algae_fleshy_green
+        - algae_fleshy_red
+        - algae_turf
+        - seagrass
+      coral:
+        - coral_blue
+        - coral_brown
+        - octocoral
+      sand:
+        - sand
+        - mud
   - four_endmember:
       algae:
         - algae_fleshy_brown
