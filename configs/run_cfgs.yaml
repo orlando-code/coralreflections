@@ -9,10 +9,11 @@
       - 450
       - 690
     endmember_type: mean
-    endmember_normalisation: minmax
+    endmember_normalisation: false
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
   simulation:
+    type: "spread"
     N: 100
     Rb_vals: [0,1]
     n_depths: 10
@@ -25,7 +26,7 @@
     noise_lims: [0.001, 0]
     noise_ind: 0  # TODO: remove unnecessary noise vars
   fitting:
-    objective_fn: spectral_angle
+    objective_fn: r2
     bb_bounds:
       - 0
       - 0.4
@@ -36,7 +37,7 @@
       - 0
       - 30
     solver: Nelder-Mead
-    tol: 1e-3
+    tol: 1e-9
 
 - 
   processing:
