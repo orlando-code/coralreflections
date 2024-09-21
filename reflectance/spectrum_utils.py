@@ -116,6 +116,18 @@ def convert_df_classes(df: pd.DataFrame, category_map: dict):
     return pd.DataFrame(endmembers).T
 
 
+def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
+    grouped_spectra = spectra.copy()
+    category_to_group = {
+        category: group
+        for group, categories in map_dict.items()
+        for category in categories
+    }
+    grouped_spectra.index = grouped_spectra.index.map(category_to_group)
+    grouped_spectra.index.name = "class"
+    return grouped_spectra
+
+
 # FITTING
 def _wrapper(
     i,
@@ -662,17 +674,6 @@ def instantiate_decomposer(method: str, n_components: int):
             raise ValueError(
                 f"Method {method} not recognised. Use 'pca', 'svd', 'nmf', 'ica', or 'kpca'."
             )
-
-
-def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
-    grouped_spectra = spectra.copy()
-    category_to_group = {
-        category: group
-        for group, categories in map_dict.items()
-        for category in categories
-    }
-    grouped_spectra.index = grouped_spectra.index.map(category_to_group)
-    return grouped_spectra
 
 
 def calculate_endmembers(
