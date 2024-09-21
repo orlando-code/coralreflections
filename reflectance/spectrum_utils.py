@@ -90,6 +90,8 @@ def deglint_spectra(spectra, nir_wavelengths: list[float] = None) -> pd.DataFram
     glint_inds = (spectra.columns > min(nir_wavelengths)) & (
         spectra.columns < max(nir_wavelengths)
     )
+    if sum(glint_inds) == 0:  # no NIR wavelengths provided (e.g. simulated)
+        return spectra
     return spectra.subtract(spectra.loc[:, glint_inds].mean(axis=1), axis=0)
 
 
@@ -248,7 +250,7 @@ def _wrapper(
     bb_bounds: tuple = (0, 0.41123),
     Kd_bounds: tuple = (0.01688, 3.17231),
     H_bounds: tuple = (0, 50),
-    end_member_bounds: tuple = (0, np.inf),
+    endmember_bounds: tuple = (0, 1),
 ):
     """
     Wrapper function for minimisation of objective function.
@@ -263,24 +265,19 @@ def _wrapper(
     - bb_bounds (tuple): Bounds for bb values. TODO: Just range of wavelength instances?
     - Kd_bounds (tuple): Bounds for Kd values.
     - H_bounds (tuple): Bounds for H values.
-    - end_member_bounds (tuple): Bounds for end member values.
+    - endmember_bounds (tuple): Bounds for end member values.
 
     Returns:
     - np.ndarray: Fitted parameters.
     """
-    x0 = [0.1, 0.1, 0] + [0.1] * len(endmember_array)
-
-    if (
-        bb_bounds is not None
-        and Kd_bounds is not None
-        and H_bounds is not None
-        and end_member_bounds is not None
-    ):
-        bounds = Bounds(
-            [bb_bounds[0], Kd_bounds[0], H_bounds[0]]
-            + [end_member_bounds[0]] * len(endmember_array),
-            [bb_bounds[1], Kd_bounds[1], H_bounds[1]]
-            + [end_member_bounds[1]] * len(endmember_array),
+    # bb, K, H, *Rb_values
+    x0 = [0.1, 0.1, 0] + [Rb_init] * len(endmember_array)
+    if all(
+        bound is not None
+        for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]
+    ) and method in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
+        bounds = [bb_bounds, Kd_bounds, H_bounds] + [endmember_bounds] * len(
+            endmember_array
         )
     else:
         bounds = None
@@ -313,7 +310,7 @@ def minimizer(
     bb_bounds: tuple = (0, 0.41123),
     Kd_bounds: tuple = (0.01688, 3.17231),
     H_bounds: tuple = (0, 50),
-    end_member_bounds: tuple = (0, np.inf),
+    endmember_bounds: tuple = (0, np.inf),
 ):
     """
     Wrapper function for minimisation of objective function.
@@ -328,7 +325,7 @@ def minimizer(
     - bb_bounds (tuple): Bounds for bb values.
     - Kd_bounds (tuple): Bounds for Kd values.
     - H_bounds (tuple): Bounds for H values.
-    - end_member_bounds (tuple): Bounds for end member values.
+    - endmember_bounds (tuple): Bounds for end member values.
 
     Returns:
     - np.ndarray: Fitted parameters.
@@ -348,7 +345,7 @@ def minimizer(
             ),
             # constrain values
             bounds=[bb_bounds, Kd_bounds, H_bounds]
-            + [end_member_bounds] * len(endmember_array),
+            + [endmember_bounds] * len(endmember_array),
         )  # may not always want to constrain this (e.g. for PCs)
         results.append(fit.x)
 

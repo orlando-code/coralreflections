@@ -46,7 +46,7 @@ class OptPipe:
         spectra_subsurface = spectrum_utils.retrieve_subsurface_reflectance(
             spectra_deglinted
         )
-        # crop to sensor range (with # TEMP RESTRICTION FOR TESTING)
+        # crop to sensor range
         self.spectra = spectrum_utils.crop_spectra_to_range(
             spectra_subsurface, self.cfg.sensor_range
         ).loc[:, :]
@@ -121,9 +121,13 @@ class OptPipe:
         """Load spectra"""
         if self.gcfg.spectra_source == "simulation":
             sim_params = self.cfg.simulation
-            if sim_params.simulation_type == "spread":
+            # select wvs within sensor_range
+            wvs = self.aop_model.loc[
+                min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+            ].index
+            if sim_params["type"] == "spread":
                 raw_spectra, spectra_metadata = spectrum_utils.spread_simulate_spectra(
-                    wvs=self.cfg.sensor_range,
+                    wvs=wvs,
                     endmember_array=self.endmembers,
                     AOP_args=self.aop_args,
                     Rb_vals=sim_params["Rb_vals"],
@@ -134,7 +138,7 @@ class OptPipe:
                     k_lims=sim_params["k_lims"],
                     bb_lims=sim_params["bb_lims"],
                 )
-            elif sim_params.simulation_type == "regular":
+            elif sim_params["type"] == "regular":
                 sim_params = self.cfg.simulation
                 raw_spectra, spectra_metadata = spectrum_utils.simulate_spectra(
                     endmember_array=self.endmembers,
@@ -152,15 +156,27 @@ class OptPipe:
                 )  # TODO: handle metadata
             # reshape array and metadata to two dataframes
             self.raw_spectra = pd.DataFrame(
-                raw_spectra.reshape(-1, raw_spectra.shape[-1])
+                raw_spectra.reshape(-1, raw_spectra.shape[-1]),
+                columns=wvs,
             )
-            self.spectra_metadata = metadata
+            self.spectra_metadata = spectra_metadata
+            # concatenate metadata to spectra
+            sim_spectra = pd.concat([self.spectra_metadata, self.raw_spectra], axis=1)
+            # save spectra and metadata to file
+            fits_dir = file_ops.get_dir(
+                file_ops.get_dir(file_ops.RESULTS_DIR_FP) / "fits"
+            )
+            self.get_run_id()
+            print(self.run_id)
+            fits_fp = file_ops.get_f(fits_dir / f"sim_spectra_{self.run_id}.csv")
+            sim_spectra.to_csv(fits_fp, index=False)
         else:
             self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
 
     def load_aop_model(self):
         """Load the AOP model dependent on the specified group"""
         self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
+        # aop_sub = self.aop_model
         aop_sub = self.aop_model.loc[
             min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
         ]
@@ -222,15 +238,15 @@ class OptPipe:
         )
 
         # if self.exec_kwargs["tqdm"]:
-        #     fitted_params = Parallel(n_jobs=self.exec_kwargs["n_cpus"])(
-        #         delayed(partial_wrapper)(index)
-        #         for index in tqdm(self.spectra.index, miniters=500)
-        #     )
+        fitted_params = Parallel(n_jobs=128)(
+            delayed(partial_wrapper)(index)
+            for index in tqdm(self.spectra.index, miniters=10)
+        )
 
         # else:
-        fitted_params = Parallel(n_jobs=128)(
-            delayed(partial_wrapper)(index) for index in self.spectra.index
-        )
+        # fitted_params = Parallel(n_jobs=128)(
+        #     delayed(partial_wrapper)(index) for index in self.spectra.index
+        # )
 
         # partial_wrapper = partial(
         #     spectrum_utils._wrapper,
@@ -348,6 +364,10 @@ class OptPipe:
             for k, v in self.gcfg.__dict__.items()
             if k not in ["endmember_map", "endmember_schema"]
         }
+        print(glob_summary)
+        if self.gcfg.spectra_source == "simulation":
+            glob_summary["spectra_fp"] = None
+        print(glob_summary)
         # create dataframe
         glob_summary_df = pd.DataFrame([glob_summary])
         # create multiindex columns
@@ -360,11 +380,13 @@ class OptPipe:
     def get_run_id(self):
         # get run id (maximum index in results_summary.csv)
         try:
+            print("not exception")
             summary_csv = pd.read_csv(
                 file_ops.get_f(file_ops.RESULTS_DIR_FP / "results_summary.csv")
             )
             self.run_id = summary_csv.index.max()
         except Exception:
+            print("exception")
             self.run_id = 1
 
     def save_results_summary(self):
@@ -418,7 +440,17 @@ class OptPipe:
             ("generate_spectra_from_fits", self.generate_spectra_from_fits),
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
+        # # execute pipeline and catch errors
+        # for step_name, step_method in pipeline_steps:
+        #     print(step_name)
+        #     step_method()
+        #     # profile_step(step_name, step_method)
 
+        # try:
+        #     # generate results (these steps not guarded by error catcher intentionally)
+        #     self.generate_results_summary()
+        #     self.generate_fit_results()
+        # print(self.cfg)
         # execute pipeline and catch errors
         for step_name, step_method in pipeline_steps:
             try:
