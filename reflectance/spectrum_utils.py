@@ -105,8 +105,16 @@ def retrieve_subsurface_reflectance(
 def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
     """Crop spectra to specified wavelength range"""
     return spectra.loc[
-        :, (spectra.columns > min(wv_range)) & (spectra.columns < max(wv_range))
+        :, (spectra.columns >= min(wv_range)) & (spectra.columns <= max(wv_range))
     ]
+
+
+def calc_fitted_spectrum(fit, wvs, endmember_array, AOP_args):
+    bb, K, H = fit.x[:3]
+    fitted_spectrum = spectrum_utils.sub_surface_reflectance_Rb(
+        wvs, endmember_array, bb, K, H, AOP_args, *fit.x[3:]
+    )
+    return fitted_spectrum
 
 
 def convert_df_classes(df: pd.DataFrame, category_map: dict):
