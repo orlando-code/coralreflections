@@ -179,7 +179,7 @@ def simulate_spectra(
 
     # for each combination, create a simulated spectrum
     total_iterations = N * n_depths * n_ks * n_bbs * n_noise_levels
-    with tqdm(total=total_iterations) as pbar:
+    with tqdm(total=total_iterations, desc="Generating simulated spectra") as pbar:
         for sample in range(N):
             for d, depth in enumerate(depths):
                 for k, K in enumerate(Ks):
@@ -218,14 +218,21 @@ def spread_simulate_spectra(
     noise_levels = np.linspace(*noise_lims, n_noise_levels)
 
     # store in metadata
-    metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs})
+    metadata = pd.DataFrame(
+        {
+            "depth": np.tile(depths, n_noise_levels),
+            "K": np.tile(Ks, n_noise_levels),
+            "bb": np.tile(bbs, n_noise_levels),
+            "noise": np.repeat(noise_levels, n_noise_levels),
+        }
+    )
 
     # initialise arrays to store results
     spread_sim_spectra = np.zeros(
         (N, n_noise_levels, len(AOP_args[0]))
     )  # TODO: slightly janky
 
-    for i in tqdm(range(N)):
+    for i in tqdm(range(N), desc="Generating simulated spectra"):
         for n, nl in enumerate(noise_levels):
             sim = sub_surface_reflectance_Rb(
                 wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals

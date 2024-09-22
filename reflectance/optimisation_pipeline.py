@@ -167,7 +167,6 @@ class OptPipe:
                 file_ops.get_dir(file_ops.RESULTS_DIR_FP) / "fits"
             )
             self.get_run_id()
-            print(self.run_id)
             fits_fp = file_ops.get_f(fits_dir / f"sim_spectra_{self.run_id}.csv")
             sim_spectra.to_csv(fits_fp, index=False)
         else:
@@ -223,6 +222,7 @@ class OptPipe:
         # create wrapper for function to allow parallel processing
         of = self.return_objective_fn()
 
+        pass
         partial_wrapper = partial(
             spectrum_utils._wrapper,
             of=of,
@@ -240,7 +240,7 @@ class OptPipe:
         # if self.exec_kwargs["tqdm"]:
         fitted_params = Parallel(n_jobs=128)(
             delayed(partial_wrapper)(index)
-            for index in tqdm(self.spectra.index, miniters=10)
+            for index in tqdm(self.spectra.index, miniters=10, desc="Fitting spectra")
         )
 
         # else:
@@ -364,10 +364,8 @@ class OptPipe:
             for k, v in self.gcfg.__dict__.items()
             if k not in ["endmember_map", "endmember_schema"]
         }
-        print(glob_summary)
         if self.gcfg.spectra_source == "simulation":
             glob_summary["spectra_fp"] = None
-        print(glob_summary)
         # create dataframe
         glob_summary_df = pd.DataFrame([glob_summary])
         # create multiindex columns
@@ -380,13 +378,10 @@ class OptPipe:
     def get_run_id(self):
         # get run id (maximum index in results_summary.csv)
         try:
-            print("not exception")
-            summary_csv = pd.read_csv(
-                file_ops.get_f(file_ops.RESULTS_DIR_FP / "results_summary.csv")
-            )
+            # try to read csv
+            summary_csv = pd.read_csv(file_ops.RESULTS_DIR_FP / "results_summary.csv")
             self.run_id = summary_csv.index.max()
         except Exception:
-            print("exception")
             self.run_id = 1
 
     def save_results_summary(self):
@@ -483,7 +478,7 @@ def run_pipeline(glob_cfg: dict, run_cfgs: dict):
     # resolve relative paths in the configuration to absolute paths
     glob_cfg = file_ops.resolve_paths(glob_cfg, file_ops.BASE_DIR_FP)
     glob_cfg = file_ops.GlobalOptPipeConfig(glob_cfg)
-    for cfg in tqdm(run_cfgs, total=len(run_cfgs)):
+    for cfg in tqdm(run_cfgs, total=len(run_cfgs), desc="Running pipeline for configs"):
         run_cfg = file_ops.RunOptPipeConfig(cfg)
         opt_pipe = OptPipe(glob_cfg, run_cfg)
         opt_pipe.run()
