@@ -10,10 +10,10 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib import ticker
 import plotly.graph_objs as go
-
-# from ipywidgets import interact
-
 import matplotlib.colors as mcolors
+
+# metrics
+from sklearn.metrics import r2_score
 
 # custom
 from reflectance import spectrum_utils
@@ -238,3 +238,93 @@ def plot_interactive_coral_algae_spectrum(coral, algae, n_samples, coralgal_cmap
     )
 
     fig.show()
+
+
+def plot_single_fit(
+    fitted_params, true_spectrum, AOP_args, endmember_array, endmember_cats
+):
+    """"""
+    fig, axs = plt.subplots(2, 1, sharex=True, constrained_layout=True, figsize=(8, 6))
+
+    wvs = true_spectrum.index
+    fitted_spectrum = spectrum_utils.generate_spectrum(
+        fitted_params, wvs, endmember_array, AOP_args
+    )
+    axs[0].plot(wvs, true_spectrum, label="spectrum")
+    axs[0].plot(wvs, fitted_spectrum, color="red", alpha=0.7, label="fit")
+    axs[0].legend(bbox_to_anchor=(1.165, 1), fontsize=8)
+
+    axs[1].plot(
+        wvs,
+        fitted_spectrum,
+        color="k",
+        alpha=0.7,
+        label="Extracted Rb",
+    )
+    axs[1].set_xlim(wvs.min(), wvs.max())
+    axs[1].set_xlabel("Wavelength (nm)")
+
+    endmember_contribution = endmember_array * fitted_params[
+        3 : 3 + len(endmember_array)
+    ].values.reshape(-1, 1)
+    cs = ["g", "coral", "c"]
+    y = np.zeros(endmember_contribution.shape[1])
+    for label, endmember in zip(endmember_cats, endmember_contribution):
+        ynew = y + endmember
+        axs[1].fill_between(wvs, y, ynew, label=label, lw=0, color=cs.pop(0), alpha=0.5)
+        y = ynew
+
+    r2 = r2_score(true_spectrum, fitted_spectrum)
+    axs[1].legend(bbox_to_anchor=(1, 1), fontsize=8)
+    plt.suptitle(
+        f"r$^2$: {r2:.4f} | sa: {spectrum_utils.spectral_angle(true_spectrum, fitted_spectrum):.4f}"
+    )
+
+
+def plot_proportions(data: dict, true_ratio: list[float]):
+    """Data dict should contain independent variable as keys and endmember contributions as values"""
+    # calculate contributions
+    means = []
+    stds = []
+    # std dev of endmember contributions
+    endmember_contributions = {}
+    for i in data.keys():
+        endmember_contributions[i] = dfs[i].values
+        means.append(endmember_contributions[i].mean(axis=0))
+        stds.append(endmember_contributions[i].std(axis=0))
+    means = np.array(means)
+    stds = np.array(stds)
+
+    # plot mean and std dev of endmember contributions
+    fig, ax = plt.subplots(figsize=(12, 6))
+    cs = ["g", "coral", "c"]
+    lines = []
+    for i, cat in enumerate(list(data.values())[0].columns):
+        (line,) = ax.plot(noise_levels, means[:, i], label=cat, color=cs[i])
+        lines.append(line)
+        ax.fill_between(
+            noise_levels,
+            means[:, i] - stds[:, i],
+            means[:, i] + stds[:, i],
+            alpha=0.3,
+            zorder=-1,
+            color=cs[i],
+        )
+        ax.hlines(
+            true_ratio[i],
+            min(dfs.keys()),
+            max(dfs.keys()),
+            linestyle="--",
+            color=cs[i],
+            alpha=0.5,
+        )
+
+    std_patch = mpatches.Patch(
+        color="grey", alpha=0.3, label="±1 Standard Deviation", lw=0
+    )
+
+    # Add the legend
+    ax.legend(handles=lines + [std_patch])
+
+    ax.set_xlabel("Noise Level")
+    ax.set_ylabel("Endmember Contribution")
