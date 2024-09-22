@@ -167,3 +167,4 @@ data/
 tmp/
 results/
 **/.DS_Store
+**.vscode/
