@@ -19,6 +19,38 @@ from sklearn.metrics import r2_score
 from reflectance import spectrum_utils
 
 
+class SpectralColour:
+    """Define colour of spectra"""
+
+    def __init__(
+        self,
+        blue_peak: float = 492.4,
+        green_peak: float = 559.8,
+        red_peak: float = 664.6,
+        blue_width: float = 66,
+        green_width: float = 36,
+        red_width: float = 31,
+    ):
+        self.blue_peak = blue_peak
+        self.green_peak = green_peak
+        self.red_peak = red_peak
+        self.blue_width = blue_width
+        self.green_width = green_width
+        self.red_width = red_width
+
+    def generate_wv_lims(self):
+        self.blue_wvs = spectrum_utils.range_from_centre_and_width(
+            self.blue_peak, self.blue_width
+        )
+        self.green_wvs = spectrum_utils.range_from_centre_and_width(
+            self.green_peak, self.green_width
+        )
+        self.red_wvs = spectrum_utils.range_from_centre_and_width(
+            self.red_peak, self.red_width
+        )
+        return self.blue_wvs, self.green_wvs, self.red_wvs
+
+
 def plot_spline_fits(
     smoothing_factors: list[float], spectrum: pd.Series, zoom_wvs: tuple[float, float]
 ):
