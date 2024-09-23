@@ -44,7 +44,7 @@ class RunOptPipeConfig:
     aop_group_num: int
     nir_wavelengths: tuple[float]
     sensor_range: tuple[float]
-    endmember_type: str
+    endmember_dimensionality_reduction: str
     endmember_normalisation: str | bool
     endmember_class_schema: int
     spectra_normalisation: str | bool
@@ -60,7 +60,9 @@ class RunOptPipeConfig:
         self.aop_group_num = conf["processing"]["aop_group_num"]
         self.nir_wavelengths = conf["processing"]["nir_wavelengths"]
         self.sensor_range = conf["processing"]["sensor_range"]
-        self.endmember_type = conf["processing"]["endmember_type"]
+        self.endmember_dimensionality_reduction = conf["processing"][
+            "endmember_dimensionality_reduction"
+        ]
         self.endmember_normalisation = conf["processing"]["endmember_normalisation"]
         self.endmember_class_schema = conf["processing"]["endmember_class_schema"]
         self.spectra_normalisation = conf["processing"]["spectra_normalisation"]

@@ -8,7 +8,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: false
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -48,7 +48,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -75,7 +75,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -102,7 +102,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -130,7 +130,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -157,7 +157,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -184,7 +184,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -211,7 +211,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -238,7 +238,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false

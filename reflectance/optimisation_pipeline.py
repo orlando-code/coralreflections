@@ -1,6 +1,7 @@
 # general
 from tqdm.auto import tqdm
 import pandas as pd
+from pathlib import Path
 
 # import numpy as np
 import logging
@@ -17,6 +18,66 @@ from joblib import Parallel, delayed
 
 # custom
 from reflectance import spectrum_utils, file_ops
+
+
+class GenerateEndmembers:
+    """
+    Generate endmembers
+    """
+
+    def __init__(
+        self,
+        endmember_class_map: dict,
+        endmember_dimensionality_reduction: str = "mean",
+        endmember_normalisation: bool = False,
+        spectral_library_fp: Path = file_ops.RESOURCES_DIR_FP
+        / "spectral_library_clean_v3_PRISM_wavebands.csv",
+    ):
+        self.spectral_library_fp = spectral_library_fp
+        self.endmember_class_map = endmember_class_map
+        self.endmember_dimensionality_reduction = endmember_dimensionality_reduction
+        self.endmember_normalisation = endmember_normalisation
+
+    def load_spectral_library(self):
+        """Load spectral library"""
+        self.spectral_library = spectrum_utils.load_spectral_library(
+            self.spectral_library_fp
+        )
+
+    def characterise_endmembers(self):
+        """Characterise endmembers using specified method"""
+        # remap classes to desired endmember schema
+        self.spectral_library = spectrum_utils.group_classes(
+            self.spectral_library, self.endmember_class_map
+        )
+
+        match self.endmember_dimensionality_reduction:
+            case "mean":
+                self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
+            case "median":
+                self.endmembers = spectrum_utils.median_endmembers(
+                    self.spectral_library
+                )
+            case "pca" | "nmf" | "ica" | "svd":
+                self.endmembers = spectrum_utils.calculate_endmembers(
+                    self.spectral_library, "pca"
+                )
+            case _:
+                raise ValueError(
+                    f"Endmember type {self.endmember_dimensionality_reduction} not recognised"
+                )
+
+        # if specified, normalise endmembers
+        if self.endmember_normalisation:
+            self.endmembers = spectrum_utils.normalise_spectra(
+                self.endmembers, self.endmember_normalisation
+            )
+
+    def generate_endmembers(self):
+        """Generate endmembers"""
+        self.load_spectral_library()
+        self.characterise_endmembers()
+        return self.endmembers
 
 
 class OptPipe:
@@ -56,10 +117,10 @@ class OptPipe:
                 self.spectra, self.cfg.spectra_normalisation
             )
 
-    def preprocess_spectral_library(self):
+    def preprocess_endmembers(self):
         """Go from raw spectral library to analysis-ready endmembers i.e. crop to relevant wavelengths"""
-        self.spectral_library = spectrum_utils.crop_spectra_to_range(
-            self.spectral_library, self.cfg.sensor_range
+        self.endmembers = spectrum_utils.crop_spectra_to_range(
+            self.endmembers, self.cfg.sensor_range
         )
 
     # def convert_classes(self):
@@ -84,38 +145,6 @@ class OptPipe:
             None,
         )
         return list(dict_object.values())[0]
-
-    def characterise_endmembers(self):
-        """Characterise endmembers using specified method"""
-        # remap classes if necessary
-        if self.cfg.endmember_class_schema:
-            endmember_schema = self.retrieve_class_map()
-            # rewrite spectral_library in classes in terms of class_map
-            self.spectral_library = spectrum_utils.group_classes(
-                self.spectral_library, endmember_schema
-            )
-
-        match self.cfg.endmember_type:
-            case "mean":
-                self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
-            case "median":
-                self.endmembers = spectrum_utils.median_endmembers(
-                    self.spectral_library
-                )
-            case "pca" | "nmf" | "ica" | "svd":
-                self.endmembers = spectrum_utils.calculate_endmembers(
-                    self.spectral_library, "pca"
-                )
-            case _:
-                raise ValueError(
-                    f"Endmember type {self.cfg.endmember_type} not recognised"
-                )
-
-        # if specified, normalise endmembers
-        if self.cfg.endmember_normalisation:
-            self.endmembers = spectrum_utils.normalise_spectra(
-                self.endmembers, self.cfg.endmember_normalisation
-            )
 
     def load_spectra(self):
         """Load spectra"""
@@ -184,12 +213,6 @@ class OptPipe:
             aop_sub.bb_c.values,
             aop_sub.Kd_m.values,
             aop_sub.Kd_c.values,
-        )
-
-    def load_spectral_library(self):
-        """Load spectral library"""
-        self.spectral_library = spectrum_utils.load_spectral_library(
-            self.gcfg.spectral_library_fp
         )
 
     def return_objective_fn(self):
@@ -418,6 +441,14 @@ class OptPipe:
         stats = pstats.Stats(profiler).sort_stats("cumtime")
         stats.print_stats(10)  # Print top 10 slowest functions
 
+    def generate_endmembers(self):
+        self.endmembers = GenerateEndmembers(
+            self.gcfg.endmember_schema[self.cfg.endmember_class_schema],
+            self.cfg.endmember_dimensionality_reduction,
+            self.cfg.endmember_normalisation,
+            self.gcfg.spectral_library_fp,
+        ).generate_endmembers()
+
     def run(self):
         """
         Runs the optimisation pipeline
@@ -425,9 +456,8 @@ class OptPipe:
 
         pipeline_steps = [
             ("load_aop_model", self.load_aop_model),
-            ("load_spectral_library", self.load_spectral_library),
-            ("preprocess_spectral_library", self.preprocess_spectral_library),
-            ("characterise_endmembers", self.characterise_endmembers),
+            ("generate_endmembers", self.generate_endmembers),
+            ("preprocess_endmembers", self.preprocess_endmembers),
             ("load_spectra", self.load_spectra),
             ("preprocess_spectra", self.preprocess_spectra),
             ("fit_spectra", self.fit_spectra),
@@ -512,7 +542,7 @@ if __name__ == "__main__":
     #     # load endmembers
     #     self.load_spectral_library()
     #     # preprocess endmembers
-    #     self.preprocess_spectral_library()
+    #     self.preprocess_endmembers()
     #     # generate specified endmember parameterisation, normalising if specified
     #     self.characterise_endmembers()
     #     # fit normalised spectra using specified objective function
