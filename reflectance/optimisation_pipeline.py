@@ -51,21 +51,30 @@ class GenerateEndmembers:
             self.spectral_library, self.endmember_class_map
         )
 
-        match self.endmember_dimensionality_reduction:
-            case "mean":
-                self.endmembers = spectrum_utils.mean_endmembers(self.spectral_library)
-            case "median":
-                self.endmembers = spectrum_utils.median_endmembers(
-                    self.spectral_library
-                )
-            case "pca" | "nmf" | "ica" | "svd":
-                self.endmembers = spectrum_utils.calculate_endmembers(
-                    self.spectral_library, "pca"
-                )
-            case _:
+        if isinstance(self.endmember_dimensionality_reduction, str):
+            reduction_methods = {
+                "mean": spectrum_utils.mean_endmembers,
+                "median": spectrum_utils.median_endmembers,
+            }
+            try:
+                self.endmembers = reduction_methods[
+                    self.endmember_dimensionality_reduction
+                ](self.spectral_library)
+            except KeyError:
                 raise ValueError(
-                    f"Endmember type {self.endmember_dimensionality_reduction} not recognised"
+                    f"Endmember type {self.endmember_dimensionality_reduction} not recognised\n"
+                    "Have you forgotten a dimension number?"
                 )
+        elif isinstance(self.endmember_dimensionality_reduction, (tuple, list)):
+            self.endmembers = spectrum_utils.calculate_endmembers(
+                self.spectral_library,
+                self.endmember_dimensionality_reduction[0],
+                self.endmember_dimensionality_reduction[1],
+            )
+        else:
+            raise ValueError(
+                f"Endmember type {self.endmember_dimensionality_reduction} not recognised"
+            )
 
         # if specified, normalise endmembers
         if self.endmember_normalisation:
