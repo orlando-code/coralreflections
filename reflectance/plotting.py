@@ -5,8 +5,7 @@ import pandas as pd
 # fitting
 from scipy.interpolate import UnivariateSpline
 
-# plotting
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib import ticker
 import plotly.graph_objs as go
@@ -49,6 +48,37 @@ class SpectralColour:
             self.red_peak, self.red_width
         )
         return self.blue_wvs, self.green_wvs, self.red_wvs
+
+
+def generate_colors_from_spectra(
+    wvs: np.ndarray, spectra: np.ndarray, percentiles: tuple[float, float] = (1, 99)
+):
+    """Spectra in format N_samples, N_wavelengths"""
+    blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
+
+    # generate spectra
+    rgb_values = np.array(
+        [
+            spectrum_utils.rgb_from_hyperspectral(wvs, s, red_wvs, green_wvs, blue_wvs)
+            for s in spectra
+        ]
+    )
+    reds, greens, blues = rgb_values[:, 0], rgb_values[:, 1], rgb_values[:, 2]
+    # normalise (assumption to scene)
+    percentiles = [
+        np.percentile(reds, [min(percentiles), max(percentiles)]),
+        np.percentile(greens, [min(percentiles), max(percentiles)]),
+        np.percentile(blues, [min(percentiles), max(percentiles)]),
+    ]
+    norm_reds, norm_greens, norm_blues = [
+        (channel - p[0]) / (p[1] - p[0])
+        for channel, p in zip([reds, greens, blues], percentiles)
+    ]
+
+    # min-max normalization
+    maxes = np.max([norm_reds, norm_greens, norm_blues], axis=1)
+    mins = np.min([norm_reds, norm_greens, norm_blues], axis=1)
+    return (np.array([norm_reds, norm_greens, norm_blues]).T - mins) / (maxes - mins)
 
 
 def plot_spline_fits(
@@ -173,7 +203,7 @@ def plot_rolling_spectral_similarity(
     # extract wavelengths from index of endmember dictionary's first entry
     wvs = next(iter(endmembers.values())).index
     end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
-    # TODO: should this calculation be within the plotting function?
+    # TODO: should this calculation be within the function?
     wv_pairs, mean_corrs = spectrum_utils.calc_rolling_similarity(
         wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn
     )
