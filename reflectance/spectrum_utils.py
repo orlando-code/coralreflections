@@ -180,7 +180,9 @@ def simulate_spectra(
     noise_levels = np.linspace(*noise_lims, n_noise_levels)
 
     # initialise arrays to store results:
-    sim_spectra = np.zeros((N, n_depths, n_ks, n_bbs, n_noise_levels, len(wvs)))
+    sim_spectra = np.zeros(
+        (N, n_depths, n_ks, n_bbs, n_noise_levels, len(AOP_args.index))
+    )
     metadata = pd.DataFrame(
         {"depth": depths, "K": Ks, "bb": bbs, "noise": noise_levels}
     )
@@ -194,7 +196,13 @@ def simulate_spectra(
                     for b, bb in enumerate(bbs):
                         for n, nl in enumerate(noise_levels):
                             sim = sub_surface_reflectance_Rb(
-                                wvs, endmember_array, bb, K, depth, AOP_args, *Rb_vals
+                                AOP_args.index,
+                                endmember_array,
+                                bb,
+                                K,
+                                depth,
+                                AOP_args,
+                                *Rb_vals,
                             )  # TODO: AOP_args
                             sim += np.random.normal(0, nl, len(sim))
                             sim_spectra[sample, d, k, b, n] = sim
