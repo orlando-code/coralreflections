@@ -185,56 +185,33 @@ def plot_spline_fits(
     plt.tight_layout()
 
 
-def plot_rolling_spectral_similarity(
-    endmembers, wv_kernel_width, wv_kernel_displacement, similarity_fn
-):
+def plot_rolling_spectral_similarity(wv_pairs, mean_corrs, wvs, comp_spectra):
     """
     Visualize the rolling spectral correlation for given end members.
-
-    This function plots the spectra of the end members and their rolling spectral correlation
-    using a specified kernel width and displacement. It also returns the wavelength pairs and
-    mean correlations used in the calculation.
-
-    Parameters:
-    - endmembers (dict): Dictionary of end member spectra, where keys are category names and values are pandas Series
-        with wavelengths as index and reflectance values as data.
-    - wv_kernel_width (int): The width of the kernel used for calculating the rolling correlation.
-    - wv_kernel_displacement (int): The displacement of the kernel for each step in the rolling correlation calculation.
-
-    Returns:
-    - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
-    - mean_corrs (list of float): List of mean spectral angle correlations for each kernel.
     """
     f, ax_spectra = plt.subplots(1, figsize=(12, 6))
     ax_correlation = ax_spectra.twinx()
 
-    # extract wavelengths from index of endmember dictionary's first entry
-    wvs = next(iter(endmembers.values())).index
-    end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
-    # TODO: should this calculation be within the function?
-    wv_pairs, mean_corrs = spectrum_utils.calc_rolling_similarity(
-        wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn
-    )
     x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
 
     # plot endmember spectra
-    for cat, spectrum in endmembers.items():
-        ax_spectra.plot(wvs, endmembers[cat], label=cat, alpha=0.4)
+    for spectrum in comp_spectra:
+        ax_spectra.plot(wvs, spectrum, label="spectrum", alpha=1)
 
     # plot horizontal error bars, width kenrel_width
     ax_correlation.errorbar(
         x_coords,
         mean_corrs,
-        xerr=wv_kernel_width / 2,
+        xerr=min(np.diff(wv_pairs)) / 2,
         fmt="x",
         color="k",
-        alpha=0.5,
+        alpha=0.2,
         label="horizontal bars = kernel span",
     )
     ax_correlation.legend()
 
     # formatting
-    ax_spectra.legend(bbox_to_anchor=(1.1, 0.5), title="End members")
+    ax_spectra.legend(bbox_to_anchor=(1.25, 0.5), title="End members")
     ax_spectra.grid("major", axis="x")
     ax_spectra.set_ylabel("Reflectance")
     ax_spectra.set_xlabel("Wavelength (nm)")
@@ -333,13 +310,10 @@ def plot_single_fit(
         alpha=0.7,
         label="Extracted Rb",
     )
-    axs[1].set_xlim(wvs.min(), wvs.max())
-    axs[1].set_xlabel("Wavelength (nm)")
 
     endmember_contribution = endmember_array * fitted_params[
         3 : 3 + len(endmember_array)
     ].values.reshape(-1, 1)
-
     # generate colour as a sum of the components
     color_dict = {c: plt.cm.tab20(i) for i, c in enumerate(endmember_cats)}
     y = np.zeros(endmember_contribution.shape[1])
@@ -350,8 +324,22 @@ def plot_single_fit(
         )
         y = ynew
 
-    r2 = r2_score(true_spectrum, fitted_spectrum)
+    # formatting
+    axs[1].set_xlim(wvs.min(), wvs.max())
+    max_rb_ax = np.max(
+        spectrum_utils.Rb_endmember(
+            endmember_array, *fitted_params[3 : 3 + len(endmember_array)]
+        )
+    )
+    max_r_ax = axs[0].get_ylim()[1]
+    axs[1].set_ylim(
+        bottom=np.min(endmember_contribution),
+        top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
+    )  # surely endmember contribution is always less than total reflectance?
     axs[1].legend(bbox_to_anchor=(1, 1), fontsize=8)
+    axs[1].set_xlabel("Wavelength (nm)")
+
+    r2 = r2_score(true_spectrum, fitted_spectrum)
     plt.suptitle(
         f"r$^2$: {r2:.4f} | sa: {spectrum_utils.spectral_angle(true_spectrum, fitted_spectrum):.4f}"
     )
@@ -404,3 +392,65 @@ def plot_proportions(data: dict, true_ratio: list[float]):
 
     ax.set_xlabel("Noise Level")
     ax.set_ylabel("Endmember Contribution")
+
+
+# DEPRECATED
+# def plot_rolling_spectral_similarity(
+#     endmembers, wv_kernel_width, wv_kernel_displacement, similarity_fn
+# ):
+#     """
+#     Visualize the rolling spectral correlation for given end members.
+
+#     This function plots the spectra of the end members and their rolling spectral correlation
+#     using a specified kernel width and displacement. It also returns the wavelength pairs and
+#     mean correlations used in the calculation.
+
+#     Parameters:
+#     - endmembers (dict): Dictionary of end member spectra, where keys are category names and values are pandas Series
+#         with wavelengths as index and reflectance values as data.
+#     - wv_kernel_width (int): The width of the kernel used for calculating the rolling correlation.
+#     - wv_kernel_displacement (int): The displacement of the kernel for each step in the rolling correlation calculation.
+
+#     Returns:
+#     - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
+#     - mean_corrs (list of float): List of mean spectral angle correlations for each kernel.
+#     """
+#     f, ax_spectra = plt.subplots(1, figsize=(12, 6))
+#     ax_correlation = ax_spectra.twinx()
+
+#     # extract wavelengths from index of endmember dictionary's first entry
+#     wvs = next(iter(endmembers.values())).index
+#     end_member_spectra = np.array([spectrum.values for spectrum in endmembers.values()])
+#     # TODO: should this calculation be within the function?
+#     wv_pairs, mean_corrs = spectrum_utils.calc_rolling_similarity(
+#         wvs, end_member_spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn
+#     )
+#     x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
+
+#     # plot endmember spectra
+#     for cat, spectrum in endmembers.items():
+#         ax_spectra.plot(wvs, endmembers[cat], label=cat, alpha=0.4)
+
+#     # plot horizontal error bars, width kenrel_width
+#     ax_correlation.errorbar(
+#         x_coords,
+#         mean_corrs,
+#         xerr=wv_kernel_width / 2,
+#         fmt="x",
+#         color="k",
+#         alpha=0.5,
+#         label="horizontal bars = kernel span",
+#     )
+#     ax_correlation.legend()
+
+#     # formatting
+#     ax_spectra.legend(bbox_to_anchor=(1.1, 0.5), title="End members")
+#     ax_spectra.grid("major", axis="x")
+#     ax_spectra.set_ylabel("Reflectance")
+#     ax_spectra.set_xlabel("Wavelength (nm)")
+#     ax_spectra.set_xlim(wvs.min(), wvs.max())
+
+#     ax_correlation.set_ylabel(
+#         "Mean spectral angle correlation:\nLow is more correlated"
+#     )
+#     ax_correlation.grid("major", axis="y")
