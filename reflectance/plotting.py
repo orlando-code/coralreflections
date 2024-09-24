@@ -326,7 +326,9 @@ def plot_single_fit(
 
     axs[1].plot(
         wvs,
-        fitted_spectrum,
+        spectrum_utils.Rb_endmember(
+            endmember_array, *fitted_params[3 : 3 + len(endmember_array)]
+        ),
         color="k",
         alpha=0.7,
         label="Extracted Rb",
@@ -337,11 +339,15 @@ def plot_single_fit(
     endmember_contribution = endmember_array * fitted_params[
         3 : 3 + len(endmember_array)
     ].values.reshape(-1, 1)
-    cs = ["g", "coral", "c"]
+
+    # generate colour as a sum of the components
+    color_dict = {c: plt.cm.tab20(i) for i, c in enumerate(endmember_cats)}
     y = np.zeros(endmember_contribution.shape[1])
     for label, endmember in zip(endmember_cats, endmember_contribution):
         ynew = y + endmember
-        axs[1].fill_between(wvs, y, ynew, label=label, lw=0, color=cs.pop(0), alpha=0.5)
+        axs[1].fill_between(
+            wvs, y, ynew, label=label, lw=0, color=color_dict[label], alpha=0.5
+        )
         y = ynew
 
     r2 = r2_score(true_spectrum, fitted_spectrum)
