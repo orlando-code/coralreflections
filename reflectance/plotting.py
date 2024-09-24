@@ -18,6 +18,14 @@ from sklearn.metrics import r2_score
 from reflectance import spectrum_utils
 
 
+def format_axis_for_ppt(ax):
+    ax.tick_params(axis="x", colors="white")
+    ax.tick_params(axis="y", colors="white")
+    [ax.spines[pos].set_color("white") for pos in ax.spines.keys()]
+    # ax.grid(True, color='white', ls='--', linewidth=0.5, alpha=0.5, which='both')
+    return ax
+
+
 class SpectralColour:
     """Define colour of spectra"""
 
