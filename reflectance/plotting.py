@@ -5,7 +5,7 @@ import pandas as pd
 # fitting
 from scipy.interpolate import UnivariateSpline
 
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib import ticker
 import plotly.graph_objs as go
@@ -322,7 +322,7 @@ def plot_single_fit(
     )
     axs[0].plot(wvs, true_spectrum, label="spectrum")
     axs[0].plot(wvs, fitted_spectrum, color="red", alpha=0.7, label="fit")
-    axs[0].legend(bbox_to_anchor=(1.165, 1), fontsize=8)
+    axs[0].legend(fontsize=8)
 
     axs[1].plot(
         wvs,
