@@ -216,8 +216,8 @@ def spread_simulate_spectra(
     AOP_args: tuple[np.array, np.array, np.array, np.array],
     Rb_vals: tuple[float],
     N: int = 10,
-    n_noise_levels=10,
-    noise_lims: tuple[float, float] = (0, 1e-3),
+    noise_level=0,
+    # noise_lims: tuple[float, float] = (0, 1e-3),
     depth_lims: tuple[float, float] = (0, 10),
     k_lims: tuple[float, float] = (0.1, 0.3),
     bb_lims: tuple[float, float] = (0.01, 0.03),
@@ -231,33 +231,35 @@ def spread_simulate_spectra(
     depths = np.linspace(*depth_lims, N)
     Ks = np.linspace(*k_lims, N)
     bbs = np.linspace(*bb_lims, N)
-    noise_levels = np.linspace(*noise_lims, n_noise_levels)
+    # noise_levels = np.linspace(*noise_lims, N)
 
     # store in metadata
-    metadata = pd.DataFrame(
-        {
-            "depth": np.tile(depths, n_noise_levels),
-            "K": np.tile(Ks, n_noise_levels),
-            "bb": np.tile(bbs, n_noise_levels),
-            "noise": np.repeat(noise_levels, n_noise_levels),
-        }
-    )
+    metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs, "noise": noise_level})
+    # metadata = pd.DataFrame(
+    #     {
+    #         "depth": np.tile(depths, n_noise_levels),
+    #         "K": np.tile(Ks, n_noise_levels),
+    #         "bb": np.tile(bbs, n_noise_levels),
+    #         # "noise": np.repeat(noise_levels, n_noise_levels),
+    #     }
+    # )
 
     # initialise arrays to store results
-    spread_sim_spectra = np.zeros(
-        (N, n_noise_levels, len(AOP_args[0]))
-    )  # TODO: slightly janky
+    # spread_sim_spectra = np.zeros(
+    #     (N, n_noise_levels, len(AOP_args[0]))
+    # )  # TODO: slightly janky
+    spread_sim_spectra = np.zeros((N, len(AOP_args[0])))  # TODO: slightly janky
 
     for i in tqdm(range(N), desc="Generating simulated spectra"):
-        for n, nl in enumerate(noise_levels):
-            sim = sub_surface_reflectance_Rb(
-                wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
-            )
-            # sim = sub_surface_reflectance_Rb(wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, Rb0, Rb1, Rb2, Rb3)
-            sim += np.random.normal(0, nl, len(sim))
-            spread_sim_spectra[i, n] = sim
+        # for n, nl in enumerate(noise_levels):
+        sim = sub_surface_reflectance_Rb(
+            wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
+        )
+        # sim = sub_surface_reflectance_Rb(wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, Rb0, Rb1, Rb2, Rb3)
+        sim += np.random.normal(0, noise_level, len(sim))
+        spread_sim_spectra[i] = sim
 
-    return spread_sim_spectra, metadata
+    return pd.DataFrame(spread_sim_spectra), metadata
 
 
 # FITTING
@@ -427,6 +429,47 @@ def spectral_angle_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
     return spectral_angle(pred, obs)
+
+
+def sa_r2_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(
+        endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
+    )
+    return 10000 * spectral_angle(pred, obs) + r2_objective_fn(
+        x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array
+    )
+
+
+def r2_objective_unity_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    bb, K, H, *Rb_values = x
+    # Ensure Rb_values sum to 1
+    Rb_values = np.array(Rb_values)
+    # Rb_values = np.clip(Rb_values, 0, 1)
+    # Generate predicted spectrum using the provided parameters
+    pred = generate_predicted_spectrum(
+        endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
+    )
+    ssq = np.sum((obs - pred) ** 2)
+    return ssq + (1 - Rb_values.sum()) ** 3 + 100 * (Rb_values < 0).sum()
+
+
+def sa_objective_unity_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    bb, K, H, *Rb_values = x
+    # Ensure Rb_values sum to 1
+    Rb_values = np.array(Rb_values)
+    # Rb_values = np.clip(Rb_values, 0, 1)
+    # Generate predicted spectrum using the provided parameters
+    pred = generate_predicted_spectrum(
+        endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
+    )
+
+    return (
+        spectral_angle(pred, obs)
+        + r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array)
+        + (1 - Rb_values.sum()) ** 2
+        + 100 * (Rb_values < 0).sum()
+    )
 
 
 def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
