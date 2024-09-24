@@ -259,7 +259,7 @@ def spread_simulate_spectra(
         sim += np.random.normal(0, noise_level, len(sim))
         spread_sim_spectra[i] = sim
 
-    return pd.DataFrame(spread_sim_spectra), metadata
+    return pd.DataFrame(spread_sim_spectra, columns=wvs), metadata
 
 
 # FITTING
@@ -436,7 +436,7 @@ def sa_r2_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     pred = generate_predicted_spectrum(
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
-    return 10000 * spectral_angle(pred, obs) + r2_objective_fn(
+    return spectral_angle(pred, obs) + r2_objective_fn(
         x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array
     )
 
@@ -451,7 +451,7 @@ def r2_objective_unity_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
     ssq = np.sum((obs - pred) ** 2)
-    return ssq + (1 - Rb_values.sum()) ** 3 + 100 * (Rb_values < 0).sum()
+    return ssq + (1 - Rb_values.sum()) ** 2 + 100 * (Rb_values < 0).sum()
 
 
 def sa_objective_unity_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
@@ -598,7 +598,6 @@ def jmsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
 def generate_spectrum(
     fitted_params, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple
 ) -> pd.Series:
-    bb_m, bb_c, Kd_m, Kd_c = AOP_args
     bb, K, H = fitted_params.values[:3]
     return sub_surface_reflectance_Rb(
         wvs, endmember_array, bb, K, H, AOP_args, *fitted_params.values[3:]
@@ -746,7 +745,7 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
 
 
 def calc_rolling_similarity(
-    wvs, spectra, wv_kernel_width, wv_kernel_displacement, similarity_fn
+    wvs, spectra, kernel_width, kernel_displacement, similarity_fn
 ):
     """
     Calculate the rolling spectral angle between a spectrum and a set of end members.
@@ -758,8 +757,8 @@ def calc_rolling_similarity(
     Parameters:
     - wvs (np.ndarray): Array of wavelengths for the spectrum.
     - spectra (np.ndarray): Array of spectra for the end members.
-    - wv_kernel_width (float | int): The width of the kernel used for calculating the rolling correlation.
-    - wv_kernel_displacement (float | int): The displacement of the kernel for each step in the rolling correlation
+    - kernel_width (float | int): The width of the kernel used for calculating the rolling correlation.
+    - kernel_displacement (float | int): The displacement of the kernel for each step in the rolling correlation
         calculation.
     - similarity_fn (function): The similarity function to be applied to calculate the mean angle.
 
@@ -768,10 +767,8 @@ def calc_rolling_similarity(
     - mean_corrs (list of float): List of mean spectral angles for each kernel.
     """
     wv_pairs = [
-        (wv, wv + wv_kernel_width)
-        for wv in np.arange(
-            wvs.min(), wvs.max() - wv_kernel_width, wv_kernel_displacement
-        )
+        (wv, wv + kernel_width)
+        for wv in np.arange(wvs.min(), wvs.max() - kernel_width, kernel_displacement)
     ]
 
     # calculate rolling spectral angles
