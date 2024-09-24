@@ -141,6 +141,7 @@ def group_classes(spectra: pd.DataFrame, map_dict: dict) -> pd.DataFrame:
 
 def simulate_spectra(
     endmember_array: np.array,
+    wvs: np.array,
     AOP_args: tuple[np.array, np.array, np.array, np.array],
     Rb_vals: tuple[float],
     N: int = 10,
@@ -158,7 +159,8 @@ def simulate_spectra(
 
     Parameters:
     - endmember_array (np.array): array of endmember spectra
-    - AOP_args (tuple): tuple of backscatter and attenuation coefficients as function of wavelength
+    - wvs (np.array): array of wavelengths over which spectrum is defined
+    - AOP_args: (tuple[np.array, np.array, np.array, np.array]): tuple of backscatter and attenuation coefficients as function of wavelength
     - Rb_vals (tuple): Rb values for each endmember
     - N (int): number of samples to generate
     - n_depths (int): number of depths to generate
@@ -180,9 +182,7 @@ def simulate_spectra(
     noise_levels = np.linspace(*noise_lims, n_noise_levels)
 
     # initialise arrays to store results:
-    sim_spectra = np.zeros(
-        (N, n_depths, n_ks, n_bbs, n_noise_levels, len(AOP_args.index))
-    )
+    sim_spectra = np.zeros((N, n_depths, n_ks, n_bbs, n_noise_levels, len(wvs)))
     metadata = pd.DataFrame(
         {"depth": depths, "K": Ks, "bb": bbs, "noise": noise_levels}
     )
@@ -196,7 +196,7 @@ def simulate_spectra(
                     for b, bb in enumerate(bbs):
                         for n, nl in enumerate(noise_levels):
                             sim = sub_surface_reflectance_Rb(
-                                AOP_args.index,
+                                wvs,
                                 endmember_array,
                                 bb,
                                 K,
@@ -897,7 +897,7 @@ def rgb_from_hyperspectral(
 # DEPRECATED #
 # # been surpassed by function for minimisation
 # def sub_surface_reflectance(wv, bb, K, H, Rb):
-#     sub = AOP_model.loc[wv]
+#     sub = AOP_margs,oc[wv]
 #     bb_lambda = bb * sub.loc[wv, 'bb_m'] + sub.loc[wv, 'bb_c']
 #     K_lambda = 2 * K * sub.loc[wv, 'Kd_m'] + sub.loc[wv, 'Kd_c']
 #     return bb_lambda / K_lambda + (Rb - bb_lambda / K_lambda) * np.exp(-K_lambda * H)
