@@ -90,3 +90,26 @@ endmember_schema:
       - coral_blue
       - coral_brown
       - octocoral
+  individual:
+      sand:
+        - sand
+      mud:
+        - mud
+      algae_fleshy_brown:
+        - algae_fleshy_brown
+      algae_fleshy_green:
+        - algae_fleshy_green
+      algae_fleshy_red:
+        - algae_fleshy_red
+      algae_turf:
+        - algae_turf
+      seagrass:
+        - seagrass
+      algae_crustose_coralline:
+        - algae_crustose_coralline
+      coral_blue:
+        - coral_blue
+      coral_brown:
+        - coral_brown
+      octocoral:
+        - octocoral
