@@ -8,6 +8,8 @@
     sensor_range:
       - 450
       - 690
+    # endmember_source: data/AOP_models/Rb_model_single_coefficient.txt
+    endmember_source: 'spectral_library'
     endmember_dimensionality_reduction: mean
     endmember_normalisation: false
     endmember_class_schema: inorganic_organic
@@ -27,6 +29,7 @@
     noise_ind: 0  # TODO: remove unnecessary noise vars
   fitting:
     objective_fn: r2
+    Rb_init: 0
     bb_bounds:
       - 0
       - 0.4
@@ -36,8 +39,11 @@
     H_bounds:
       - 0
       - 30
+    endmember_bounds:
+      - 0
+      - 1000000000
     solver: Nelder-Mead
-    tol: 1e-9
+    tol: 1e9
 
 - 
   processing:
