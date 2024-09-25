@@ -44,6 +44,7 @@ class RunOptPipeConfig:
     aop_group_num: int
     nir_wavelengths: tuple[float]
     sensor_range: tuple[float]
+    endmember_source: str
     endmember_dimensionality_reduction: str
     endmember_normalisation: str | bool
     endmember_class_schema: int
@@ -57,22 +58,42 @@ class RunOptPipeConfig:
     tol: float
 
     def __init__(self, conf: dict):
-        self.aop_group_num = conf["processing"]["aop_group_num"]
-        self.nir_wavelengths = conf["processing"]["nir_wavelengths"]
-        self.sensor_range = conf["processing"]["sensor_range"]
-        self.endmember_dimensionality_reduction = conf["processing"][
+        self.processing = conf["processing"]
+        self.fitting = conf["fitting"]
+        self.simulation = conf["simulation"]
+        # data processing
+        self.aop_group_num = self.processing["aop_group_num"]
+        self.nir_wavelengths = self.processing["nir_wavelengths"]
+        self.sensor_range = self.processing["sensor_range"]
+        self.endmember_source = self.processing["endmember_source"]
+        self.endmember_dimensionality_reduction = self.processing[
             "endmember_dimensionality_reduction"
         ]
-        self.endmember_normalisation = conf["processing"]["endmember_normalisation"]
-        self.endmember_class_schema = conf["processing"]["endmember_class_schema"]
-        self.spectra_normalisation = conf["processing"]["spectra_normalisation"]
-        self.objective_fn = conf["fitting"]["objective_fn"]
-        self.bb_bounds = conf["fitting"]["bb_bounds"]
-        self.Kd_bounds = conf["fitting"]["Kd_bounds"]
-        self.H_bounds = conf["fitting"]["H_bounds"]
-        self.simulation = conf["simulation"]
-        self.solver = conf["fitting"]["solver"]
-        self.tol = conf["fitting"]["tol"]
+        self.endmember_normalisation = self.processing["endmember_normalisation"]
+        self.endmember_class_schema = self.processing["endmember_class_schema"]
+        self.spectra_normalisation = self.processing["spectra_normalisation"]
+        # fitting
+        self.objective_fn = self.fitting["objective_fn"]
+        self.Rb_init = self.fitting["Rb_init"]
+        self.bb_bounds = self.fitting["bb_bounds"]
+        self.Kd_bounds = self.fitting["Kd_bounds"]
+        self.H_bounds = self.fitting["H_bounds"]
+        self.endmember_bounds = self.fitting["endmember_bounds"]
+        self.solver = self.fitting["solver"]
+        self.tol = self.fitting["tol"]
+
+
+def skip_textfile_rows(fp, start_str):
+    with open(fp, "r") as f:
+        start_found = False
+        skiprows = 0
+        while not start_found:
+            line = f.readline()
+            if line.startswith(start_str):
+                start_found = True
+            else:
+                skiprows += 1
+    return skiprows
 
 
 def get_dir(dir_fp: str | Path) -> Path:
@@ -89,15 +110,19 @@ def get_f(fp: str | Path) -> Path:
     return file_path
 
 
-def resolve_paths(config, base_dir):
+def resolve_path(fp: str | Path, base_dir: Path = BASE_DIR_FP) -> Path:
+    if (isinstance(fp, str) or isinstance(fp, Path)) and (
+        fp.startswith("data/") or fp.startswith("reflectance/")
+    ):
+        return (base_dir / fp).resolve()
+
+
+def resolve_paths(config: dict, base_dir: Path):
     """
-    Resolve relative paths in the configuration to absolute paths.
+    Resolve relative paths in the configuration dictionary to absolute paths.
     """
     for key, value in config.items():
-        if isinstance(value, str) and (
-            value.startswith("data/") or value.startswith("reflectance/")
-        ):
-            config[key] = (base_dir / value).resolve()
+        config[key] = resolve_path(value, base_dir)
     return config
 
 
