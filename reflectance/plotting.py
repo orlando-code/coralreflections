@@ -205,9 +205,10 @@ def plot_rolling_spectral_similarity(wv_pairs, mean_corrs, wvs, comp_spectra):
         xerr=min(np.diff(wv_pairs)) / 2,
         fmt="x",
         color="k",
-        alpha=0.2,
+        alpha=0.3,
         label="horizontal bars = kernel span",
     )
+    ax_correlation.scatter(x_coords, mean_corrs, color="k", alpha=1, marker="x")
     ax_correlation.legend()
 
     # formatting
