@@ -26,7 +26,7 @@ from scipy.optimize import minimize, Bounds
 # from scipy.interpolate import UnivariateSpline
 
 # custom
-from reflectance.file_ops import RESOURCES_DIR_FP, DATA_DIR_FP
+from reflectance import file_ops
 
 
 """LOADING"""
@@ -41,7 +41,8 @@ except ImportError:
 
 @lru_cache(maxsize=None)
 def load_spectral_library(
-    fp: Path = RESOURCES_DIR_FP / "spectral_library_clean_v3_PRISM_wavebands.csv",
+    fp: Path = file_ops.RESOURCES_DIR_FP
+    / "spectral_library_clean_v3_PRISM_wavebands.csv",
 ) -> pd.DataFrame:
     df = pd.read_csv(fp, skiprows=1)
     # correct column naming
@@ -51,9 +52,17 @@ def load_spectral_library(
     return df.astype(float)
 
 
+def load_Rb_model(Rb_model_fp: Path) -> int:
+    """Load Rb model from filepath"""
+    skiprows = file_ops.skip_textfile_rows(Rb_model_fp, "wl,")
+    Rb_model = pd.read_csv(Rb_model_fp, skiprows=skiprows - 1).set_index("wl")
+    Rb_model.columns = [f"Rb{num}" for num in range(len(Rb_model.columns))]
+    return Rb_model.T
+
+
 @lru_cache(maxsize=None)
 def load_spectra(
-    fp: Path = DATA_DIR_FP / "CORAL_validation_spectra.csv",
+    fp: Path = file_ops.DATA_DIR_FP / "CORAL_validation_spectra.csv",
 ) -> pd.DataFrame:
     """Load spectra from file"""
     spectra = pd.read_csv(fp)
@@ -68,19 +77,11 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     """Load AOP model for specified group number
     N.B. Group 3 file was modified to remove a duplicate row of column headers
     """
-    f_AOP_model = resource_dir / f"AOP_models_Group_{aop_group_num}.txt"
-    with open(f_AOP_model, "r") as f:
-        start_found = False
-        skiprows = 0
-        while not start_found:
-            line = f.readline()
-            if line.startswith("wl,"):
-                start_found = True
-            else:
-                skiprows += 1
+    f_AOP_model_fp = resource_dir / f"AOP_models_Group_{aop_group_num}.txt"
+    skiprows = file_ops.skip_textfile_rows(f_AOP_model_fp, "wl,")
 
     # read in wavelengths as df
-    AOP_model = pd.read_csv(f_AOP_model, skiprows=skiprows - 1).set_index("wl")
+    AOP_model = pd.read_csv(f_AOP_model_fp, skiprows=skiprows - 1).set_index("wl")
     AOP_model.columns = ["Kd_m", "Kd_c", "bb_m", "bb_c"]
     return AOP_model
 
@@ -109,9 +110,32 @@ def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFram
     ]
 
 
+def preprocess_prism_spectra(raw_spectra, nir_wavelengths, sensor_range):
+    """
+    Preprocess the raw prism spectra to remove the NIR wavelengths and sensor range
+
+    Args:
+    raw_spectra: pd.DataFrame
+        The raw prism spectra
+    nir_wavelengths: list
+        The NIR wavelengths to remove
+    sensor_range: list
+        The sensor range to remove
+
+    Returns:
+    pd.DataFrame
+        The preprocessed prism spectra
+    """
+    spectra_deglinted = deglint_spectra(raw_spectra, nir_wavelengths)
+    # subsurface reflectance
+    spectra_subsurface = retrieve_subsurface_reflectance(spectra_deglinted)
+    # crop to sensor range
+    return crop_spectra_to_range(spectra_subsurface, sensor_range)
+
+
 def calc_fitted_spectrum(fit, wvs, endmember_array, AOP_args):
     bb, K, H = fit.x[:3]
-    fitted_spectrum = spectrum_utils.sub_surface_reflectance_Rb(
+    fitted_spectrum = sub_surface_reflectance_Rb(
         wvs, endmember_array, bb, K, H, AOP_args, *fit.x[3:]
     )
     return fitted_spectrum
@@ -266,9 +290,7 @@ def spread_simulate_spectra(
 def _wrapper(
     i,
     of,
-    method: str,
-    tol: float,
-    prism_spectra: pd.DataFrame,
+    obs_spectra: pd.DataFrame,
     AOP_args: tuple,
     endmember_array: np.ndarray,
     Rb_init: float = 0.0001,
@@ -276,6 +298,8 @@ def _wrapper(
     Kd_bounds: tuple = (0.01688, 3.17231),
     H_bounds: tuple = (0, 50),
     endmember_bounds: tuple = (0, 1),
+    solver: str = "L-BFGS-B",
+    tol: float = 1e-9,
 ):
     """
     Wrapper function for minimisation of objective function.
@@ -283,7 +307,7 @@ def _wrapper(
     Parameters:
     - i (int): Index of spectrum to fit.
     - of (function): Objective function to minimise.
-    - prism_spectra (pd.DataFrame): DataFrame of observed spectra.
+    - obs_spectra (pd.DataFrame): DataFrame of observed spectra.
     - AOP_args (tuple): Tuple of backscatter and attenuation coefficients as function of wavelength.
     - endmember_array (np.ndarray): Array of end member spectra. Shape (N_endmembers, wavelengths)
     - Rb_init (float): Initial value for Rb: can't be 0 since spectral angle is undefined.
@@ -300,25 +324,25 @@ def _wrapper(
     if all(
         bound is not None
         for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]
-    ) and method in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
-        bounds = [bb_bounds, Kd_bounds, H_bounds] + [endmember_bounds] * len(
-            endmember_array
-        )
+    ) and solver in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
+        bounds = [bb_bounds, Kd_bounds, H_bounds] + [
+            [np.inf if isinstance(b, str) else b for b in endmember_bounds],
+        ] * len(endmember_array)
     else:
         bounds = None
-
+    # return lunatic
     fit = minimize(
         of,
         x0=x0,  # initial coefficient values
         # extra arguments passsed to the object function (and its derivatives)
         args=(
-            prism_spectra.loc[i],  # spectrum to fit (obs)
+            obs_spectra.loc[i],  # spectrum to fit (obs)
             *AOP_args,  # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
             endmember_array,  # typical end-member spectra
         ),
         bounds=bounds,  # constrain values
-        method=method,  # fitting method
-        tol=tol,  # fit tolerance
+        # method=solver,  # fitting method
+        # tol=float(tol),  # fit tolerance
     )
 
     return fit.x
@@ -439,6 +463,19 @@ def sa_r2_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     return spectral_angle(pred, obs) + r2_objective_fn(
         x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array
     )
+
+
+def og_rg_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+    bb, K, H, *Rb_values = x
+    pred = generate_predicted_spectrum(
+        endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
+    )
+    ssq = np.sum((obs - pred) ** 2)
+    penalty = np.sum(np.array([Rb_values]) ** 2)
+    penalty_scale = ssq / max(
+        penalty.max(), 1
+    )  # doesn't this just remove the Rb penalty?
+    return ssq + penalty_scale * penalty
 
 
 def r2_objective_unity_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
