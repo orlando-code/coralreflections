@@ -477,13 +477,17 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     pred = generate_predicted_spectrum(
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
-    # weighting
-    ssq = np.sum((obs - pred) ** 2)
+    ssq = calc_ssq(obs, pred)
     penalty = np.sum(np.array(Rb_values) ** 2)
     penalty_scale = ssq / max(
         penalty.max(), 1
     )  # doesn't this just remove the Rb penalty?
     return ssq + penalty_scale * penalty
+
+
+def calc_ssq(obs, pred):
+    # calculate sum of squares
+    return np.sum((obs - pred) ** 2)
 
 
 # def spectral_angle_objective_fn_w1(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
@@ -496,12 +500,16 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
 #     return -spectral_angle_corrs * spectral_angle(pred, obs)
 
 
-def euclidean_distance(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+def euclidean_distance_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     """Calculate the Euclidean distance between two spectra X and Y."""
     bb, K, H, *Rb_values = x
     pred = generate_predicted_spectrum(
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
+    return calc_euclidean_distance(obs, pred)
+
+
+def calc_euclidean_distance(obs, pred):
     return np.linalg.norm(obs - pred)
 
 
@@ -511,9 +519,12 @@ def spectral_similarity_gradient(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array
     pred = generate_predicted_spectrum(
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
-    # Calculate gradients and their means
-    X, Y = obs, pred
-    delta_X, delta_Y = np.gradient(X), np.gradient(Y)
+    return calc_spectral_similarity_gradient(obs, pred)
+
+
+def calc_spectral_similarity_gradient(obs, pred):
+    # TODO: get a reading on this one
+    delta_X, delta_Y = np.gradient(obs), np.gradient(pred)
     mean_X, mean_Y = np.mean(delta_X), np.mean(delta_Y)
 
     # Center the gradients
@@ -718,7 +729,7 @@ def spectral_angle(X: np.ndarray, Y: np.ndarray) -> float:
     """Calculate the spectral angle between two spectra X and Y, handling possible zero division."""
     norm_X, norm_Y = np.linalg.norm(X), np.linalg.norm(Y)
     if norm_X == 0 or norm_Y == 0:
-        return None
+        return np.nan
     cos_theta = np.clip(np.dot(X, Y) / (norm_X * norm_Y), -1, 1)
     return np.arccos(cos_theta)
 
