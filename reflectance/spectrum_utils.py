@@ -1,5 +1,5 @@
-# general
 import numpy as np
+# general
 import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
@@ -17,7 +17,7 @@ from sklearn.preprocessing import (
     RobustScaler,
     MaxAbsScaler,
 )
-from sklearn.metrics import r2_score
+from sklearn.metrics import r2_score, root_mean_squared_error, mean_absolute_error
 from scipy.spatial.distance import mahalanobis
 
 # fitting
@@ -52,6 +52,7 @@ def load_spectral_library(
     return df.astype(float)
 
 
+@lru_cache(maxsize=None)
 def load_Rb_model(Rb_model_fp: Path) -> int:
     """Load Rb model from filepath"""
     skiprows = file_ops.skip_textfile_rows(Rb_model_fp, "wl,")
@@ -319,18 +320,17 @@ def _wrapper(
     Returns:
     - np.ndarray: Fitted parameters.
     """
-    # bb, K, H, *Rb_values
-    x0 = [0.1, 0.1, 0] + [Rb_init] * len(endmember_array)
-    if all(
-        bound is not None
-        for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]
-    ) and solver in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
-        bounds = [bb_bounds, Kd_bounds, H_bounds] + [
-            [np.inf if isinstance(b, str) else b for b in endmember_bounds],
-        ] * len(endmember_array)
+    if all(bound is not None for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]):
+        # bb, K, H, *Rb_values
+        x0 = [np.mean(bb_bounds), np.mean(Kd_bounds), np.mean(H_bounds)] + [Rb_init] * len(endmember_array)
+        
+        if solver in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
+            bounds = [bb_bounds, Kd_bounds, H_bounds] + [
+                [np.inf if isinstance(b, str) else b for b in endmember_bounds],
+            ] * len(endmember_array)
     else:
         bounds = None
-    # return lunatic
+
     fit = minimize(
         of,
         x0=x0,  # initial coefficient values
@@ -341,8 +341,8 @@ def _wrapper(
             endmember_array,  # typical end-member spectra
         ),
         bounds=bounds,  # constrain values
-        # method=solver,  # fitting method
-        # tol=float(tol),  # fit tolerance
+        method=solver,  # fitting method
+        tol=float(tol),  # fit tolerance
     )
 
     return fit.x
@@ -662,20 +662,41 @@ def generate_spectra_from_fits(
     return spectra_df
 
 
+def calculate_mean_absolute_deviation(observed_spectrum, fitted_spectrum):
+    diff = observed_spectrum - fitted_spectrum
+    return np.mean(np.abs(diff - np.mean(diff)))
+
+
+def calculate_median_absolute_deviation(observed_spectrum, fitted_spectrum):
+    diff = observed_spectrum - fitted_spectrum
+    return np.median(np.abs(diff - np.median(diff)))
+
+
 # TODO: have moved from nesting in calculate_metrics to help with performance
 def calculate_row_metrics(row, observed_spectra, fitted_spectra):
     observed = observed_spectra.loc[row.name]
     fitted = fitted_spectra.loc[row.name]
     r2 = r2_score(observed, fitted)
     sa = spectral_angle(observed.values, fitted.values)
-    return pd.Series({"r2": r2, "spectral_angle": sa})
+    rmse = root_mean_squared_error(observed, fitted)
+    mean_abs_dev = calculate_mean_absolute_deviation(observed, fitted)
+    median_abs_dev = calculate_median_absolute_deviation(observed, fitted)
+    return pd.Series(
+        {
+            "r2": r2,
+            "spectral_angle": sa,
+            "rmse": rmse,
+            "mean_abs_dev": mean_abs_dev,
+            "median_abs_dev": median_abs_dev,
+        }
+    )
 
 
 def calculate_metrics(
     observed_spectra: pd.DataFrame, fitted_spectra: pd.DataFrame
 ) -> pd.DataFrame:
     """
-    Calculate the r2 and spectral angle between observed and fitted spectra and return as a DataFrame
+    Calculate all possible metrics comparing observed and fitted spectra. Return as a DataFrame
     """
     metrics = observed_spectra.apply(
         calculate_row_metrics, axis=1, args=(observed_spectra, fitted_spectra)
