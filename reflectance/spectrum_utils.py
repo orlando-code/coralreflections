@@ -1,4 +1,5 @@
 import numpy as np
+
 # general
 import pandas as pd
 from pathlib import Path
@@ -320,10 +321,15 @@ def _wrapper(
     Returns:
     - np.ndarray: Fitted parameters.
     """
-    if all(bound is not None for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]):
+    if all(
+        bound is not None
+        for bound in [bb_bounds, Kd_bounds, H_bounds, endmember_bounds]
+    ):
         # bb, K, H, *Rb_values
-        x0 = [np.mean(bb_bounds), np.mean(Kd_bounds), np.mean(H_bounds)] + [Rb_init] * len(endmember_array)
-        
+        x0 = [np.mean(bb_bounds), np.mean(Kd_bounds), np.mean(H_bounds)] + [
+            Rb_init
+        ] * len(endmember_array)
+
         if solver in ["Nelder-Mead", "L-BFGS-B", "Powell", "TNC"]:
             bounds = [bb_bounds, Kd_bounds, H_bounds] + [
                 [np.inf if isinstance(b, str) else b for b in endmember_bounds],
@@ -574,17 +580,13 @@ def calc_spectral_similarity_gradient(obs, pred):
     return numerator / denominator if denominator != 0 else 0.0
 
 
-def spectral_information_divergence(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
-    """Calculate the Spectral Information Divergence (SID) between spectra X and Y."""
-    bb, K, H, *Rb_values = x
-    pred = generate_predicted_spectrum(
-        endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
+def spectral_information_divergence(obs, pred):
+    """Calculate the Spectral Information Divergence (SID) between spectra obs and pred."""
+    p_obs, p_pred = obs / np.sum(obs) + epsilon, pred / np.sum(pred) + epsilon
+    p_obs, p_pred = np.clip(p_obs, epsilon, None), np.clip(p_pred, epsilon, None)
+    return np.sum(p_obs * np.log(p_obs / p_pred)) + np.sum(
+        p_pred * np.log(p_pred / p_obs)
     )
-    epsilon = 1e-10  # avoid dividing by zero
-    X, Y = obs, pred
-    p_X, p_Y = X / np.sum(X) + epsilon, Y / np.sum(Y) + epsilon
-    p_X, p_Y = np.clip(p_X, epsilon, None), np.clip(p_Y, epsilon, None)
-    return np.sum(p_X * np.log(p_X / p_Y)) + np.sum(p_Y * np.log(p_Y / p_X))
 
 
 def sidsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
@@ -593,10 +595,9 @@ def sidsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     pred = generate_predicted_spectrum(
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
-    X, Y = obs, pred
-    return spectral_information_divergence(
-        x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array
-    ) * np.tan(spectral_angle(X, Y))
+    return spectral_information_divergence(obs, pred) * np.tan(
+        spectral_angle(obs, pred)
+    )
 
 
 # BROKEN
