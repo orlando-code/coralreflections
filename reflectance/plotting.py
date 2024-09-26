@@ -185,9 +185,21 @@ def plot_spline_fits(
     plt.tight_layout()
 
 
-def plot_rolling_spectral_similarity(wv_pairs, mean_corrs, wvs, comp_spectra):
+def plot_rolling_spectral_similarity(
+    wv_pairs: list[tuple],
+    mean_corrs: list[float],
+    wvs: np.ndarray,
+    comp_spectra: np.ndarray,
+    spectra_names: list[str] = None,
+):
     """
     Visualize the rolling spectral correlation for given end members.
+
+    Parameters:
+    - wv_pairs (list of tuples): List of wavelength pairs used for each kernel.
+    - mean_corrs (list of float): List of mean spectral angle correlations for each kernel.
+    - wvs (np.ndarray): Array of wavelengths.
+    - comp_spectra (list of np.ndarray): List of component spectra to plot.
     """
     f, ax_spectra = plt.subplots(1, figsize=(12, 6))
     ax_correlation = ax_spectra.twinx()
@@ -195,8 +207,10 @@ def plot_rolling_spectral_similarity(wv_pairs, mean_corrs, wvs, comp_spectra):
     x_coords = [np.mean(wv_pair) for wv_pair in wv_pairs]
 
     # plot endmember spectra
-    for spectrum in comp_spectra:
-        ax_spectra.plot(wvs, spectrum, label="spectrum", alpha=1)
+    for i, spectrum in enumerate(comp_spectra):
+        ax_spectra.plot(
+            wvs, spectrum, label=spectra_names[i] if spectra_names else None, alpha=1
+        )
 
     # plot horizontal error bars, width kenrel_width
     ax_correlation.errorbar(
@@ -212,7 +226,11 @@ def plot_rolling_spectral_similarity(wv_pairs, mean_corrs, wvs, comp_spectra):
     ax_correlation.legend()
 
     # formatting
-    ax_spectra.legend(bbox_to_anchor=(1.25, 0.5), title="End members")
+    (
+        ax_spectra.legend(bbox_to_anchor=(1.25, 0.5), title="End members")
+        if spectra_names
+        else None
+    )
     ax_spectra.grid("major", axis="x")
     ax_spectra.set_ylabel("Reflectance")
     ax_spectra.set_xlabel("Wavelength (nm)")
