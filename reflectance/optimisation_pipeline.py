@@ -108,17 +108,10 @@ class OptPipe:
 
     def preprocess_spectra(self):
         """Correct for glint, calculate subsurface reflectance, crop to sensor range"""
-        # fetch indices within NIR wavelength range
-        spectra_deglinted = spectrum_utils.deglint_spectra(
-            self.raw_spectra, self.cfg.nir_wavelengths
-        )
-        # subsurface reflectance
-        spectra_subsurface = spectrum_utils.retrieve_subsurface_reflectance(
-            spectra_deglinted
-        )
-        # crop to sensor range
-        self.spectra = spectrum_utils.crop_spectra_to_range(
-            spectra_subsurface, self.cfg.sensor_range
+        self.spectra = spectrum_utils.preprocess_prism_spectra(
+            self.raw_spectra,
+            nir_wavelengths=self.cfg.nir_wavelengths,
+            sensor_range=self.cfg.sensor_range,
         ).loc[:, :]
         # normalise spectra if specified
         if self.cfg.spectra_normalisation:
@@ -229,6 +222,8 @@ class OptPipe:
         match self.cfg.objective_fn.lower():
             case "r2":
                 return spectrum_utils.r2_objective_fn
+            case "og_r2":
+                return spectrum_utils.og_rg_of
             case "euclidean_distance":
                 return spectrum_utils.euclidean_distance
             case "mahalanobis_distance":
@@ -254,18 +249,18 @@ class OptPipe:
         # create wrapper for function to allow parallel processing
         of = self.return_objective_fn()
 
-        pass
         partial_wrapper = partial(
             spectrum_utils._wrapper,
             of=of,
-            prism_spectra=self.spectra,
+            obs_spectra=self.spectra,
             AOP_args=self.aop_args,
             endmember_array=self.endmembers.values,
-            Rb_init=0.0001,
+            Rb_init=self.cfg.Rb_init,
             bb_bounds=self.cfg.bb_bounds,
             Kd_bounds=self.cfg.Kd_bounds,
             H_bounds=self.cfg.H_bounds,
-            method=self.cfg.solver,
+            endmember_bounds=self.cfg.endmember_bounds,
+            solver=self.cfg.solver,
             tol=self.cfg.tol,
         )
 
@@ -275,44 +270,11 @@ class OptPipe:
             for index in tqdm(self.spectra.index, miniters=10, desc="Fitting spectra")
         )
 
-        # else:
-        # fitted_params = Parallel(n_jobs=128)(
-        #     delayed(partial_wrapper)(index) for index in self.spectra.index
-        # )
-
-        # partial_wrapper = partial(
-        #     spectrum_utils._wrapper,
-        #     of=of,
-        #     prism_spectra=self.spectra,
-        #     AOP_args=self.aop_args,
-        #     endmember_array=self.endmembers.values,
-        #     Rb_init=0.0001,
-        #     bb_bounds=self.cfg.bb_bounds,
-        #     Kd_bounds=self.cfg.Kd_bounds,
-        #     H_bounds=self.cfg.H_bounds,
-        #     method=self.cfg.solver,
-        #     tol=self.cfg.tol,
-        # )
-
-        # with mp.Pool(
-        #     processes=mp.cpu_count() // 2
-        # ) as pool:  # limit to half the number of cores
-        #     fitted_params = list(
-        #         tqdm(
-        #             pool.imap(partial_wrapper, self.spectra.index),
-        #             total=len(self.spectra.index),
-        #             miniters=500,
-        #         )
-        #     )
         self.fitted_params = pd.DataFrame(
             fitted_params,
             index=self.spectra.index,
             columns=["bb", "K", "H"] + list(list(self.endmembers.index)),
         )
-
-    # def calculate_error_metrics(self):
-    #     """Reconstructing spectra from the fitted parameters"""
-    #     self.metrics = spectrum_utils.calculate_metrics(self.spectra, self.fitted_params)
 
     def generate_results_df(self):
         """Generate a dataframe with a multiindex: run parameters, true spectra, fit results, error metrics"""
@@ -334,11 +296,11 @@ class OptPipe:
         )
 
     def generate_fit_results(self):
+        # combine fitted_params with fitted_spectra and metrics
+        self.fit_results = spectrum_utils.generate_fit_results(
+            self.fitted_params, self.fitted_spectra, self.error_metrics
+        )
         if self.gcfg.save_fits:
-            # combine fitted_params with fitted_spectra and metrics
-            self.fit_results = spectrum_utils.generate_fit_results(
-                self.fitted_params, self.fitted_spectra, self.error_metrics
-            )
             # generate filename from summary_results index
             fits_dir_fp = file_ops.get_dir(file_ops.RESULTS_DIR_FP / "fits")
             # find maximum index in results_summary and create fp
@@ -451,18 +413,22 @@ class OptPipe:
         stats.print_stats(10)  # Print top 10 slowest functions
 
     def generate_endmembers(self):
-        self.endmembers = GenerateEndmembers(
-            self.gcfg.endmember_schema[self.cfg.endmember_class_schema],
-            self.cfg.endmember_dimensionality_reduction,
-            self.cfg.endmember_normalisation,
-            self.gcfg.spectral_library_fp,
-        ).generate_endmembers()
+        if not self.cfg.endmember_source == "spectral_library":
+            # resolve path
+            self.cfg.endmember_source = file_ops.resolve_path(self.cfg.endmember_source)
+            self.endmembers = spectrum_utils.load_Rb_model(self.cfg.endmember_source)
+        else:
+            self.endmembers = GenerateEndmembers(
+                self.gcfg.endmember_schema[self.cfg.endmember_class_schema],
+                self.cfg.endmember_dimensionality_reduction,
+                self.cfg.endmember_normalisation,
+                self.gcfg.spectral_library_fp,
+            ).generate_endmembers()
 
     def run(self):
         """
         Runs the optimisation pipeline
         """
-
         pipeline_steps = [
             ("load_aop_model", self.load_aop_model),
             ("generate_endmembers", self.generate_endmembers),
@@ -470,15 +436,14 @@ class OptPipe:
             ("load_spectra", self.load_spectra),
             ("preprocess_spectra", self.preprocess_spectra),
             ("fit_spectra", self.fit_spectra),
-            # ("fit_spectra", self.profile_fit_spectra),
             ("generate_spectra_from_fits", self.generate_spectra_from_fits),
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
-        # # execute pipeline and catch errors
+        # execute pipeline and catch errors
         # for step_name, step_method in pipeline_steps:
         #     print(step_name)
         #     step_method()
-        #     # profile_step(step_name, step_method)
+        # profile_step(step_name, step_method)
 
         # try:
         #     # generate results (these steps not guarded by error catcher intentionally)
@@ -499,15 +464,16 @@ class OptPipe:
                 )  # useful for debugging since logging otherwise hides until end
                 self.e = e
                 self.e_step = step_name
+
         try:
             # generate results (these steps not guarded by error catcher intentionally)
             self.generate_results_summary()
             self.generate_fit_results()
             print(self.cfg)
-
         except Exception as e:
             print("e", e)
-            print(self.cfg)
+
+        return self.fit_results
 
 
 def run_pipeline(glob_cfg: dict, run_cfgs: dict):
