@@ -112,7 +112,7 @@ class OptPipe:
             self.raw_spectra,
             nir_wavelengths=self.cfg.nir_wavelengths,
             sensor_range=self.cfg.sensor_range,
-        ).loc[:, :]
+        ).loc[:50, :]
         # normalise spectra if specified
         if self.cfg.spectra_normalisation:
             self.spectra = spectrum_utils.normalise_spectra(
@@ -425,11 +425,73 @@ class OptPipe:
                 self.gcfg.spectral_library_fp,
             ).generate_endmembers()
 
+    def check_for_repeat_run(self):
+        """Check results csv for identical run configuration"""
+        results_fp = file_ops.RESULTS_DIR_FP / "results_summary.csv"
+        # write header if new file
+        if not results_fp.exists():
+            pass
+        else:
+            runs = pd.read_csv(results_fp)
+            irrelevant_sub_columns = [
+                "datetime (UTC)",
+                "save_fits",
+                "count",
+                "mean",
+                "std",
+                "min",
+            ]
+            irrelevant_columns = [
+                "spectral_angle",
+                "r2",
+                "rmse",
+                "mean_abs_dev",
+                "median_abs_dev",
+            ]
+            # drop any columns which contain strings included in "irrelevant_columns"
+            runs = runs.drop(
+                columns=[
+                    col
+                    for col in runs.columns
+                    if any([sub in col for sub in irrelevant_columns])
+                ]
+            )
+            # drop any columns for which value in first row is in "irrelevant_sub_columns"
+            runs = runs.drop(
+                columns=[
+                    col
+                    for col in runs.columns
+                    if runs[col].iloc[0] in irrelevant_sub_columns
+                ]
+            )
+
+            gcfg_dict = self.gcfg.__dict__
+            cfg_dict = self.cfg.__dict__
+            config_values = list(gcfg_dict.values()) + list(cfg_dict.values())
+            # for each row in results csv, check if all values in row match current run
+            for i, row in runs.iloc[1:].iterrows():
+                row_values = list(row.values)
+                # check whether two arrays are iden
+
+                if row_values == config_values:
+                    raise ValueError(
+                        "Identical run configuration found in results_summary.csv"
+                    )
+                # gcfg_row = row.filter(like="global_configuration")
+                # cfg_row = row.filter(like="configuration")
+                # if gcfg_row.equals(pd.DataFrame([gcfg_dict])) and cfg_row.equals(
+                #     pd.DataFrame([cfg_dict])
+                # ):
+                #     raise ValueError(
+                #         "Identical run configuration found in results_summary.csv"
+                #     )
+
     def run(self):
         """
         Runs the optimisation pipeline
         """
         pipeline_steps = [
+            ("check_for_repeat_run", self.check_for_repeat_run),
             ("load_aop_model", self.load_aop_model),
             ("generate_endmembers", self.generate_endmembers),
             ("preprocess_endmembers", self.preprocess_endmembers),
@@ -439,41 +501,40 @@ class OptPipe:
             ("generate_spectra_from_fits", self.generate_spectra_from_fits),
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
-        # execute pipeline and catch errors
-        # for step_name, step_method in pipeline_steps:
-        #     print(step_name)
-        #     step_method()
-        # profile_step(step_name, step_method)
-
-        # try:
-        #     # generate results (these steps not guarded by error catcher intentionally)
-        #     self.generate_results_summary()
-        #     self.generate_fit_results()
-        # print(self.cfg)
-        # execute pipeline and catch errors
         for step_name, step_method in pipeline_steps:
-            try:
-                step_method()
-                # profile_step(step_name, step_method)
-            except Exception as e:
-                print(
-                    "e:", e
-                )  # useful for debugging since logging otherwise hides until end
-                print(
-                    "step_name", step_name
-                )  # useful for debugging since logging otherwise hides until end
-                self.e = e
-                self.e_step = step_name
+            print(step_name)
+            step_method()
+            # profile_step(step_name, step_method)
 
         try:
             # generate results (these steps not guarded by error catcher intentionally)
             self.generate_results_summary()
             self.generate_fit_results()
-            print(self.cfg)
-        except Exception as e:
-            print("e", e)
+        except:
+            pass
+        # for step_name, step_method in pipeline_steps:
+        #     try:
+        #         step_method()
+        #         # profile_step(step_name, step_method)
+        #     except Exception as e:
+        #         print(
+        #             "e:", e
+        #         )  # useful for debugging since logging otherwise hides until end
+        #         print(
+        #             "step_name", step_name
+        #         )  # useful for debugging since logging otherwise hides until end
+        #         self.e = e
+        #         self.e_step = step_name
 
-        return self.fit_results
+        # try:
+        #     # generate results (these steps not guarded by error catcher intentionally)
+        #     self.generate_results_summary()
+        #     self.generate_fit_results()
+        #     print(self.cfg)
+        # except Exception as e:
+        #     print("e", e)
+
+        # return self.fit_results
 
 
 def run_pipeline(glob_cfg: dict, run_cfgs: dict):
