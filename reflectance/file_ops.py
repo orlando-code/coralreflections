@@ -41,6 +41,9 @@ class GlobalOptPipeConfig:
 
 @dataclass
 class RunOptPipeConfig:
+    processing: dict
+    fitting: dict
+    simulation: dict
     aop_group_num: int
     nir_wavelengths: tuple[float]
     sensor_range: tuple[float]
@@ -53,9 +56,11 @@ class RunOptPipeConfig:
     bb_bounds: tuple[float]
     Kd_bounds: tuple[float]
     H_bounds: tuple[float]
-    simulation: dict
     solver: str
     tol: float
+    """TODO: currently having cake and eating it here, since duplicating attributes from the nested dictionaries.
+    If I unpacked the dictionaries in the RunOpt I abstract away from the dataclass definition
+    """
 
     def __init__(self, conf: dict):
         self.processing = conf["processing"]
@@ -81,6 +86,25 @@ class RunOptPipeConfig:
         self.endmember_bounds = self.fitting["endmember_bounds"]
         self.solver = self.fitting["solver"]
         self.tol = self.fitting["tol"]
+
+    def get_dict_values(self):
+        """Return dictionary containing only keys whose values are dictionaries."""
+        return {k: v for k, v in self.__dict__.items() if isinstance(v, dict)}
+
+    def get_config_summaries(self):
+        """Return dictionaries to unpack for config (these to be processed for results summary)"""
+        return unpack_nested_dict({k: v for k, v in self.get_dict_values().items()})
+
+
+def unpack_nested_dict(d, parent_key=()):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + (k,)
+        if isinstance(v, dict):
+            items.extend(unpack_nested_dict(v, new_key).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
 
 
 def skip_textfile_rows(fp, start_str):
