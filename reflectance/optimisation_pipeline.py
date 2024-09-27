@@ -248,7 +248,6 @@ class OptPipe:
     def fit_spectra(self):
         # create wrapper for function to allow parallel processing
         of = self.return_objective_fn()
-
         partial_wrapper = partial(
             spectrum_utils._wrapper,
             of=of,
@@ -336,13 +335,9 @@ class OptPipe:
         self.save_results_summary()
 
     def generate_cfg_summary(self):
-        cfg_df = pd.DataFrame([self.cfg.__dict__])
-        # create dataframe with run parameters and summary metrics
-        multiindex_columns = pd.MultiIndex.from_product(
-            [["configuration"], cfg_df.columns]
-        )
-        cfg_df.columns = multiindex_columns
-        self.cfg_df = cfg_df
+        config_summary_dict = self.cfg.get_config_summaries()
+        multiindex = pd.MultiIndex.from_tuples(config_summary_dict.keys())
+        self.cfg_df = pd.DataFrame([config_summary_dict.values()], columns=multiindex)
 
     def generate_run_metadata(self):
         # return date and time as multiindex df with metadata on first, header on second
