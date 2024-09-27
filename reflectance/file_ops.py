@@ -134,19 +134,15 @@ def get_f(fp: str | Path) -> Path:
     return file_path
 
 
-def resolve_path(path: str, base_dir: str | Path = BASE_DIR_FP) -> Path:
-    return (base_dir / path).resolve()
-
-
 def resolve_paths(config: dict, base_dir: Path):
     """
     Resolve relative paths in the configuration dictionary to absolute paths.
     """
     for key, value in config.items():
-        if (isinstance(value, str) or isinstance(value, Path)) and (
+        if isinstance(value, str) and (
             value.startswith("data/") or value.startswith("reflectance/")
         ):
-            value = resolve_path(value, base_dir)
+            value = Path(value).resolve()
         config[key] = value
     return config
 
