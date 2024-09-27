@@ -460,33 +460,35 @@ class OptPipe:
                 ]
             )
 
-            gcfg_dict = self.gcfg.__dict__
-            cfg_dict = self.cfg.__dict__
-            config_values = list(gcfg_dict.values()) + list(cfg_dict.values())
-            # for each row in results csv, check if all values in row match current run
-            for i, row in runs.iloc[1:].iterrows():
-                row_values = list(row.values)
-                # check whether two arrays are iden
+            gcfg_dict = self.gcfg.__dict__.copy()  # prevent overwriting gcfg
+            cfg_dict = self.cfg.get_config_summaries()
+            # drop endmember_map, endmember_schema from gcfg_dict
+            gcfg_dict.pop("endmember_map")
+            gcfg_dict.pop("endmember_schema")
+            gcfg_dict.pop("save_fits")
 
-                if row_values == config_values:
-                    raise ValueError(
-                        "Identical run configuration found in results_summary.csv"
-                    )
-                # gcfg_row = row.filter(like="global_configuration")
-                # cfg_row = row.filter(like="configuration")
-                # if gcfg_row.equals(pd.DataFrame([gcfg_dict])) and cfg_row.equals(
-                #     pd.DataFrame([cfg_dict])
-                # ):
-                #     raise ValueError(
-                #         "Identical run configuration found in results_summary.csv"
-                #     )
+            config_values = list(gcfg_dict.values()) + list(cfg_dict.values())
+            # convert all values to strings, and cast any PosixPath objects to strings
+            config_values = [
+                str(val) if not isinstance(val, Path) else str(val)
+                for val in config_values
+            ]
+            config_df = pd.DataFrame([config_values])
+            matches = runs.iloc[1:].apply(
+                lambda row: row.equals(config_df.iloc[0]), axis=1
+            )  # check for a match
+            return matches.any()
 
     def run(self):
         """
         Runs the optimisation pipeline
         """
+        # if this would be a repeat run, skip the pipeline
+        if self.check_for_repeat_run():
+            print(f"Repeat run arrested for {self.cfg}")
+            return
+
         pipeline_steps = [
-            ("check_for_repeat_run", self.check_for_repeat_run),
             ("load_aop_model", self.load_aop_model),
             ("generate_endmembers", self.generate_endmembers),
             ("preprocess_endmembers", self.preprocess_endmembers),
@@ -497,7 +499,7 @@ class OptPipe:
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
         for step_name, step_method in pipeline_steps:
-            print(step_name)
+            # print(step_name)
             step_method()
             # profile_step(step_name, step_method)
 
