@@ -410,7 +410,7 @@ class OptPipe:
     def generate_endmembers(self):
         if not self.cfg.endmember_source == "spectral_library":
             # resolve path
-            self.cfg.endmember_source = file_ops.resolve_path(self.cfg.endmember_source)
+            self.cfg.endmember_source = Path(self.cfg.endmember_source)
             self.endmembers = spectrum_utils.load_Rb_model(self.cfg.endmember_source)
         else:
             self.endmembers = GenerateEndmembers(
@@ -459,7 +459,6 @@ class OptPipe:
                     if runs[col].iloc[0] in irrelevant_sub_columns
                 ]
             )
-
             gcfg_dict = self.gcfg.__dict__.copy()  # prevent overwriting gcfg
             cfg_dict = self.cfg.get_config_summaries()
             # drop endmember_map, endmember_schema from gcfg_dict
@@ -473,11 +472,19 @@ class OptPipe:
                 str(val) if not isinstance(val, Path) else str(val)
                 for val in config_values
             ]
+            config_values = [
+                val if val != "None" else float(-9999) for val in config_values
+            ]
             config_df = pd.DataFrame([config_values])
-            matches = runs.iloc[1:].apply(
-                lambda row: row.equals(config_df.iloc[0]), axis=1
+            matches = (
+                runs.fillna(float(-9999))
+                .iloc[1:]
+                .apply(
+                    lambda row: list(row.values) == (config_df.iloc[0]),
+                    axis=1,
+                )
             )  # check for a match
-            return matches.any()
+            return matches.any().any()
 
     def run(self):
         """
@@ -498,8 +505,9 @@ class OptPipe:
             ("generate_spectra_from_fits", self.generate_spectra_from_fits),
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
+        print("\n")
         for step_name, step_method in pipeline_steps:
-            # print(step_name)
+            print(step_name)
             step_method()
             # profile_step(step_name, step_method)
 
