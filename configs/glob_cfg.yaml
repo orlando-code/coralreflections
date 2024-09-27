@@ -2,7 +2,7 @@ spectra_source: prism
 spectra_fp: data/CORAL_validation_spectra.csv
 spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv
 validation_data_fp: data/CORAL_validation_data.csv
-save_fits: true
+save_fits: false
 endmember_map:
   algae_crustose_coralline: 
     - algCCA
