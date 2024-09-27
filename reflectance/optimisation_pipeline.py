@@ -112,7 +112,7 @@ class OptPipe:
             self.raw_spectra,
             nir_wavelengths=self.cfg.nir_wavelengths,
             sensor_range=self.cfg.sensor_range,
-        ).loc[:500, :]
+        ).loc[:, :]
         # normalise spectra if specified
         if self.cfg.spectra_normalisation:
             self.spectra = spectrum_utils.normalise_spectra(
@@ -229,7 +229,7 @@ class OptPipe:
             case "mahalanobis_distance":
                 return spectrum_utils.mahalanobis_distance
             case "spectral_similarity_gradient":
-                return spectrum_utils.spectral_similarity_gradient
+                return spectrum_utils.spectral_similarity_gradient_of
             case "spectral_information_divergence":
                 return spectrum_utils.spectral_information_divergence
             case "sidsam":

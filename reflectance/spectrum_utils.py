@@ -556,7 +556,7 @@ def calc_euclidean_distance(obs, pred):
     return np.linalg.norm(obs - pred)
 
 
-def spectral_similarity_gradient(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
+def spectral_similarity_gradient_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     """Calculate spectral similarity (GSSM) between the gradients of spectra X and Y."""
     bb, K, H, *Rb_values = x
     pred = generate_predicted_spectrum(
