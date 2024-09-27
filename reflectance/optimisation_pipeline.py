@@ -112,7 +112,7 @@ class OptPipe:
             self.raw_spectra,
             nir_wavelengths=self.cfg.nir_wavelengths,
             sensor_range=self.cfg.sensor_range,
-        ).loc[:50, :]
+        ).loc[:500, :]
         # normalise spectra if specified
         if self.cfg.spectra_normalisation:
             self.spectra = spectrum_utils.normalise_spectra(
@@ -459,6 +459,7 @@ class OptPipe:
                     if runs[col].iloc[0] in irrelevant_sub_columns
                 ]
             )
+            runs = runs.fillna(str(-9999))
             gcfg_dict = self.gcfg.__dict__.copy()  # prevent overwriting gcfg
             cfg_dict = self.cfg.get_config_summaries()
             # drop endmember_map, endmember_schema from gcfg_dict
@@ -473,18 +474,13 @@ class OptPipe:
                 for val in config_values
             ]
             config_values = [
-                val if val != "None" else float(-9999) for val in config_values
+                val if val != "None" else str(-9999) for val in config_values
             ]
-            config_df = pd.DataFrame([config_values])
-            matches = (
-                runs.fillna(float(-9999))
-                .iloc[1:]
-                .apply(
-                    lambda row: list(row.values) == (config_df.iloc[0]),
-                    axis=1,
-                )
-            )  # check for a match
-            return matches.any().any()
+            # Check for a match in any row
+            for _, row in runs.iloc[1:].iterrows():
+                if all(row.values == config_values):
+                    return True
+            return False
 
     def run(self):
         """
@@ -507,7 +503,7 @@ class OptPipe:
         ]
         print("\n")
         for step_name, step_method in pipeline_steps:
-            print(step_name)
+            # print(step_name)
             step_method()
             # profile_step(step_name, step_method)
 
