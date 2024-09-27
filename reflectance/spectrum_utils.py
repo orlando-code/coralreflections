@@ -334,8 +334,8 @@ def _wrapper(
             bounds = [bb_bounds, Kd_bounds, H_bounds] + [
                 [np.inf if isinstance(b, str) else b for b in endmember_bounds],
             ] * len(endmember_array)
-    else:
-        bounds = None
+        else:
+            bounds = None
 
     fit = minimize(
         of,
@@ -346,7 +346,7 @@ def _wrapper(
             *AOP_args,  # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
             endmember_array,  # typical end-member spectra
         ),
-        bounds=bounds,  # constrain values
+        bounds=bounds,  # constrain values    # TODO: fix
         method=solver,  # fitting method
         tol=float(tol),  # fit tolerance
     )
