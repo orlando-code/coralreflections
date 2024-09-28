@@ -59,19 +59,22 @@ class SpectralColour:
 
 
 def generate_spectra_color(
-    wvs: np.array, spectra: np.array, vis_percentiles: tuple[float] = (1, 99)
+    spectra_df: pd.DataFrame, vis_percentiles: tuple[float] = (1, 99)
 ) -> np.ndarray:
     """
     Generate RGB visualisation of spectra from hyperspectral data.
 
     Parameters:
-    spectra: (np.array) - dataframe containing spectra data in format N_samples, N_wavelengths
+    spectra_df: (np.array) - dataframe containing spectra data in format N_samples, N_wavelengths
     vis_percentiles: (tuple) - percentiles for normalisation
 
     Returns:
     (np.ndarray) - array of RGB values for each spectrum
     """
     blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
+
+    spectra = spectra_df.values
+    wvs = spectra_df.columns
     rgb_values = np.array(
         [
             spectrum_utils.rgb_from_hyperspectral(wvs, s, red_wvs, green_wvs, blue_wvs)
