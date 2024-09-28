@@ -264,7 +264,7 @@ class OptPipe:
         )
 
         # if self.exec_kwargs["tqdm"]:
-        fitted_params = Parallel(n_jobs=128)(
+        fitted_params = Parallel(n_jobs=164)(
             delayed(partial_wrapper)(index)
             for index in tqdm(self.spectra.index, miniters=10, desc="Fitting spectra")
         )
@@ -290,9 +290,12 @@ class OptPipe:
         )
 
     def calculate_error_metrics(self):
-        self.error_metrics = spectrum_utils.calculate_metrics(
-            self.spectra, self.fitted_spectra
-        )
+        try:
+            self.error_metrics = spectrum_utils.calculate_metrics(
+                self.spectra, self.fitted_spectra
+            )
+        except ValueError:   # unable to fit spectra
+            self.error_metrics = None
 
     def generate_fit_results(self):
         # combine fitted_params with fitted_spectra and metrics
@@ -531,9 +534,9 @@ class OptPipe:
         #     # generate results (these steps not guarded by error catcher intentionally)
         #     self.generate_results_summary()
         #     self.generate_fit_results()
-        #     print(self.cfg)
         # except Exception as e:
         #     print("e", e)
+        print(self.cfg)
 
         # return self.fit_results
 
