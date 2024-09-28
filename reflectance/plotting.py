@@ -58,35 +58,35 @@ class SpectralColour:
         return self.blue_wvs, self.green_wvs, self.red_wvs
 
 
-def generate_colors_from_spectra(
-    wvs: np.ndarray, spectra: np.ndarray, percentiles: tuple[float, float] = (1, 99)
-):
-    """Spectra in format N_samples, N_wavelengths"""
-    blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
+def generate_spectra_color(
+    wvs: np.array, spectra: np.array, vis_percentiles: tuple[float] = (1, 99)
+) -> np.ndarray:
+    """
+    Generate RGB visualisation of spectra from hyperspectral data.
 
-    # generate spectra
+    Parameters:
+    spectra: (np.array) - dataframe containing spectra data in format N_samples, N_wavelengths
+    vis_percentiles: (tuple) - percentiles for normalisation
+
+    Returns:
+    (np.ndarray) - array of RGB values for each spectrum
+    """
+    blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
     rgb_values = np.array(
         [
             spectrum_utils.rgb_from_hyperspectral(wvs, s, red_wvs, green_wvs, blue_wvs)
             for s in spectra
         ]
     )
-    reds, greens, blues = rgb_values[:, 0], rgb_values[:, 1], rgb_values[:, 2]
-    # normalise (assumption to scene)
-    percentiles = [
-        np.percentile(reds, [min(percentiles), max(percentiles)]),
-        np.percentile(greens, [min(percentiles), max(percentiles)]),
-        np.percentile(blues, [min(percentiles), max(percentiles)]),
-    ]
-    norm_reds, norm_greens, norm_blues = [
-        (channel - p[0]) / (p[1] - p[0])
-        for channel, p in zip([reds, greens, blues], percentiles)
-    ]
 
-    # min-max normalization
-    maxes = np.max([norm_reds, norm_greens, norm_blues], axis=1)
-    mins = np.min([norm_reds, norm_greens, norm_blues], axis=1)
-    return (np.array([norm_reds, norm_greens, norm_blues]).T - mins) / (maxes - mins)
+    reds, greens, blues = rgb_values[:, 0], rgb_values[:, 1], rgb_values[:, 2]
+    # visualise via percentiles percentiles
+    percentiles = np.percentile(rgb_values, vis_percentiles, axis=0)
+    norm_rgb_values = (rgb_values - percentiles[0]) / (percentiles[1] - percentiles[0])
+    # Min-max normalization of values
+    maxes = np.max(norm_rgb_values, axis=0)
+    mins = np.min(norm_rgb_values, axis=0)
+    return (norm_rgb_values - mins) / (maxes - mins)
 
 
 def plot_spline_fits(
