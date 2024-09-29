@@ -29,6 +29,10 @@ from scipy.optimize import minimize, Bounds
 # custom
 from reflectance import file_ops
 
+# GLOBALS
+NIR_WAVELENGTHS = [750, 1100]
+SENSOR_RANGE = [450, 690]
+
 
 """LOADING"""
 # import resource data
