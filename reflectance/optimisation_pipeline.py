@@ -502,40 +502,40 @@ class OptPipe:
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
         print("\n")
-        for step_name, step_method in pipeline_steps:
-            # print(step_name)
-            step_method()
-            # profile_step(step_name, step_method)
-
-        try:
-            # generate results (these steps not guarded by error catcher intentionally)
-            self.generate_results_summary()
-            self.generate_fit_results()
-        except:
-            pass
         # for step_name, step_method in pipeline_steps:
-        #     try:
-        #         step_method()
-        #         # profile_step(step_name, step_method)
-        #     except Exception as e:
-        #         print(
-        #             "e:", e
-        #         )  # useful for debugging since logging otherwise hides until end
-        #         print(
-        #             "step_name", step_name
-        #         )  # useful for debugging since logging otherwise hides until end
-        #         self.e = e
-        #         self.e_step = step_name
+        #     # print(step_name)
+        #     step_method()
+        #     # profile_step(step_name, step_method)
 
         # try:
         #     # generate results (these steps not guarded by error catcher intentionally)
         #     self.generate_results_summary()
         #     self.generate_fit_results()
-        #     print(self.cfg)
-        # except Exception as e:
-        #     print("e", e)
+        # except:
+        #     pass
+        for step_name, step_method in pipeline_steps:
+            try:
+                step_method()
+                # profile_step(step_name, step_method)
+            except Exception as e:
+                print(
+                    "e:", e
+                )  # useful for debugging since logging otherwise hides until end
+                print(
+                    "step_name", step_name
+                )  # useful for debugging since logging otherwise hides until end
+                self.e = e
+                self.e_step = step_name
 
-        # return self.fit_results
+        try:
+            # generate results (these steps not guarded by error catcher intentionally)
+            self.generate_results_summary()
+            self.generate_fit_results()
+            print(self.cfg)
+        except Exception as e:
+            print("e", e)
+
+        return self.fit_results
 
 
 def run_pipeline(glob_cfg: dict, run_cfgs: dict):
