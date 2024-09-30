@@ -879,6 +879,17 @@ def normalise_spectra(spectra: pd.DataFrame, scaler_type: str) -> pd.DataFrame:
 
 
 # END MEMBER CHARACTERISATION
+def map_validation(validation_df: pd.DataFrame, endmember_map: dict) -> pd.DataFrame:
+    """Map validation data to end members."""
+    validation_df_mapped = pd.DataFrame(index=validation_df.index)
+    for endmember_dimensionality_reduction, validation_fields in endmember_map.items():
+        # fill in validation data with sum of all fields in the category
+        validation_df_mapped.loc[:, endmember_dimensionality_reduction] = (
+            validation_df.loc[:, validation_fields].sum(axis=1)
+        )
+    return validation_df_mapped
+
+
 def mean_endmembers(
     spectral_library_df: pd.DataFrame, classes: list[str] = None
 ) -> pd.DataFrame:
