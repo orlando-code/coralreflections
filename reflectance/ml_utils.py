@@ -34,68 +34,6 @@ def report(results, n_top=3):
             print("")
 
 
-def plot_regression_results(
-    test_data: pd.DataFrame, pred_data: np.array, labels: pd.DataFrame
-):
-    num_plots = test_data.shape[1]
-    # TODO: fix shading
-    fig, axs = plt.subplots(
-        1,
-        num_plots,
-        figsize=(6, num_plots * 6),
-        constrained_layout=True,
-        dpi=300,
-        sharex=True,
-        sharey=True,
-    )
-
-    for i, (endmember, ax) in enumerate(zip(labels.columns, axs.flat)):
-        pred = pred_data[:, i]
-        true = test_data.iloc[:, i]
-        ax.scatter(true, pred, s=5, alpha=0.3)
-        ax.text(
-            0.02,
-            0.98,
-            endmember,
-            ha="left",
-            va="top",
-            transform=ax.transAxes,
-            fontsize=6,
-        )
-        ax.axis("square")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        # set grid
-        ax.grid(True, which="both", ls="-", alpha=0.3)
-        # set xtiuck fontsize
-        ax.tick_params(axis="both", which="major", labelsize=6)
-        if np.sum(pred > 0.001):
-            ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
-            try:
-                p = np.polyfit(true, pred, 1)
-                y_est = np.polyval(p, true)
-                ax.text(
-                    0.98,
-                    0.02,
-                    f"m = {p[0]:.2f}\nc = {p[1]:.2f}",
-                    ha="right",
-                    va="bottom",
-                    transform=ax.transAxes,
-                    fontsize=6,
-                )
-                y_err = true.std() * np.sqrt(
-                    1 / len(true)
-                    + (true - true.mean()) ** 2 / np.sum((true - true.mean()) ** 2)
-                )
-
-                r2 = r2_score(true, pred)
-                ax.plot(true, y_est, color="r", ls=":", alpha=0.8)
-                # ax.fill_between(true, y_est - y_err, y_est + y_err, alpha=0.8)
-            except np.linalg.LinAlgError:
-                pass
-        ax.set_title(f"$r^2$ = {r2:.2f}\nN = {len(np.nonzero(true)[0])}", fontsize=6)
-
-
 class MLDataPipe:
 
     def __init__(
@@ -254,7 +192,7 @@ class sklModels:
         print(
             f"RandomizedSearchCV took {(time() - start):.2f} seconds for {self.n_iter_search} candidates parameter settings."
         )
-        ml_utils.report(random_search.cv_results_, n_top=self.n_report)
+        report(random_search.cv_results_, n_top=self.n_report)
         self.random_search = random_search
 
     def return_fitted_model(self, X_train, y_train):

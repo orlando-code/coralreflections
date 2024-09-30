@@ -416,6 +416,81 @@ def plot_proportions(data: dict, true_ratio: list[float]):
     ax.set_ylabel("Endmember Contribution")
 
 
+def initialise_square_plot_grid(
+    n_plots, n_cols=3, figsize=(15, 15), constrained_layout: bool = True, dpi: int = 300
+):
+    n_rows = int(np.ceil(n_plots / n_cols))
+    print(n_rows)
+    fig, axs = plt.subplots(
+        n_rows,
+        n_cols,
+        figsize=(6, n_rows * 2),
+        constrained_layout=constrained_layout,
+        dpi=dpi,
+        sharex=True,
+        sharey=True,
+    )
+    # remove empty axes
+    for i in range(n_plots, n_rows * n_cols):
+        fig.delaxes(axs.flatten()[i])
+    return fig, axs
+
+
+# ML
+def plot_regression_results(
+    test_data: pd.DataFrame, pred_data: np.array, labels: pd.DataFrame
+):
+    num_plots = test_data.shape[1]
+    fig, axs = initialise_square_plot_grid(num_plots)
+    # TODO: fix shading
+
+    for i, (endmember, ax) in enumerate(zip(labels.columns, axs.flat)):
+        pred = pred_data[:, i]
+        true = test_data.iloc[:, i]
+        ax.scatter(true, pred, s=5, alpha=0.3)
+        ax.text(
+            0.02,
+            0.98,
+            endmember,
+            ha="left",
+            va="top",
+            transform=ax.transAxes,
+            fontsize=6,
+        )
+        ax.axis("square")
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+        # set grid
+        ax.grid(True, which="both", ls="-", alpha=0.3)
+        # set xtiuck fontsize
+        ax.tick_params(axis="both", which="major", labelsize=6)
+        if np.sum(pred > 0.001):
+            ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
+            try:
+                p = np.polyfit(true, pred, 1)
+                y_est = np.polyval(p, true)
+                ax.text(
+                    0.98,
+                    0.02,
+                    f"m = {p[0]:.2f}\nc = {p[1]:.2f}",
+                    ha="right",
+                    va="bottom",
+                    transform=ax.transAxes,
+                    fontsize=6,
+                )
+                y_err = true.std() * np.sqrt(
+                    1 / len(true)
+                    + (true - true.mean()) ** 2 / np.sum((true - true.mean()) ** 2)
+                )
+
+                r2 = r2_score(true, pred)
+                ax.plot(true, y_est, color="r", ls=":", alpha=0.8)
+                # ax.fill_between(true, y_est - y_err, y_est + y_err, alpha=0.8)
+            except np.linalg.LinAlgError:
+                pass
+        ax.set_title(f"$r^2$ = {r2:.2f}\nN = {len(np.nonzero(true)[0])}", fontsize=6)
+
+
 # DEPRECATED
 # def plot_rolling_spectral_similarity(
 #     endmembers, wv_kernel_width, wv_kernel_displacement, similarity_fn
