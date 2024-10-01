@@ -13,6 +13,7 @@ import io
 BASE_DIR_FP = Path(__file__).resolve().parent.parent
 MODULE_DIR_FP = BASE_DIR_FP / "reflectance"
 RESOURCES_DIR_FP = MODULE_DIR_FP / "resources"
+MODELS_DIR_FP = RESOURCES_DIR_FP / "models"
 DATA_DIR_FP = BASE_DIR_FP / "data"
 RESULTS_DIR_FP = BASE_DIR_FP / "results"
 TMP_DIR_FP = BASE_DIR_FP / "tmp"
