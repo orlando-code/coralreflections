@@ -20,6 +20,7 @@ from sklearn.preprocessing import (
 )
 from sklearn.metrics import r2_score, root_mean_squared_error, mean_absolute_error
 from scipy.spatial.distance import mahalanobis
+from scipy import stats
 
 # fitting
 from scipy.optimize import minimize, Bounds
@@ -263,8 +264,8 @@ def spread_simulate_spectra(
     N: int = 10,
     noise_level=0,
     depth_lims: tuple[float, float] = (0, 10),
-    k_lims: tuple[float, float] = (0.1, 0.3),
-    bb_lims: tuple[float, float] = (0.01, 0.03),
+    k_lims: tuple[float, float] = (0.01688, 3.17231),
+    bb_lims: tuple[float, float] = (0, 0.41123),
 ) -> np.array:
     # check that endmember and Rb_vals dimensions match
     assert endmember_array.shape[0] == len(Rb_vals), (
@@ -276,18 +277,33 @@ def spread_simulate_spectra(
         "loc": 0.28062690149136393,
         "scale": 5.723423318320629,
     }
-    weibull_pdf = stats.weibull_min.pdf(**depth_lims, **weibull_min_vals)
+    weibull_pdf = stats.weibull_min.pdf(
+        np.linspace(min(depth_lims), max(depth_lims), num=1000), **weibull_min_vals
+    )
 
     depths = np.random.choice(
         np.linspace(*depth_lims, 1000), size=N, p=weibull_pdf / np.sum(weibull_pdf)
     )
-    Ks = np.random.normal(
-        loc=np.mean(k_lims), scale=(k_lims[1] - k_lims[0]) / 4, size=N
-    )
-    bbs = np.random.normal(
-        loc=np.mean(bb_lims), scale=(bb_lims[1] - bb_lims[0]) / 4, size=N
-    )
 
+    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "K_sampling.npy")
+    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_sampling.npy")
+    # Ks = stats.truncnorm(
+    #     (k_lims[0] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
+    #     (k_lims[1] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
+    #     loc=np.mean(k_lims),
+    #     scale=(k_lims[1] - k_lims[0]) / (2 * 1.96),
+    # ).rvs(N)
+    # bbs = stats.truncnorm(
+    #     (bb_lims[0] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
+    #     (bb_lims[1] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
+    #     loc=np.mean(bb_lims),
+    #     scale=(bb_lims[1] - bb_lims[0]) / (2 * 1.96),
+    # ).rvs(N)
+
+    bbs = np.random.choice(
+        np.linspace(*bb_lims, 1000), size=N, p=bb_pdf / np.sum(bb_pdf)
+    )
+    Ks = np.random.choice(np.linspace(*k_lims, 1000), size=N, p=Ks_pdf / np.sum(Ks_pdf))
     # store in metadata
     metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs, "noise": noise_level})
 
@@ -830,7 +846,7 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
 
 
 def calc_rolling_similarity(
-    wvs, spectra, kernel_width, kernel_displacement, similarity_fn
+    wvs, spectra: np.ndarray, kernel_width, kernel_displacement, similarity_fn
 ):
     """
     Calculate the rolling spectral angle between a spectrum and a set of end members.
@@ -858,13 +874,26 @@ def calc_rolling_similarity(
 
     # calculate rolling spectral angles
     mean_corrs = []
+    std_corrs = []
     for wv_pair in wv_pairs:
         pair_ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
-        # mean_angle, _ = similarity_fn(spectra[:, ~pair_ids])
-        mean_angle = similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][1])
-        mean_corrs.append(mean_angle)
+        similarities = [
+            similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][j])
+            for i, j in zip(range(1, spectra.shape[0]), range(1, spectra.shape[0]))
+        ]
+        # similarities = [
+        #     similarity_fn(spectra[:, pair_ids][i], spectra[:, pair_ids][j])
+        #     for i, j in zip(range(1, spectra.shape[0]), range(1, spectra.shape[0]))
+        # ]
+        mean_similarities = np.mean(similarities)
+        std_similarities = np.std(similarities)
+        # else:
 
-    return wv_pairs, mean_corrs
+        #     mean_angle = similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][1])
+        mean_corrs.append(mean_similarities)
+        std_corrs.append(std_similarities)
+
+    return wv_pairs, (np.array(mean_corrs), np.array(std_corrs))
 
 
 def instantiate_scaler(scaler_type: str):
