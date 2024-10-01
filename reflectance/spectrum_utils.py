@@ -92,6 +92,18 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     return AOP_model
 
 
+def process_aop_model(aop_model, sensor_range):
+    aop_sub = self.aop_model.loc[
+        min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+    ]
+    self.aop_args = (
+        aop_sub.bb_m.values,
+        aop_sub.bb_c.values,
+        aop_sub.Kd_m.values,
+        aop_sub.Kd_c.values,
+    )
+
+
 # PREPROCESSING
 def deglint_spectra(spectra, nir_wavelengths: list[float] = None) -> pd.DataFrame:
     glint_inds = (spectra.columns > min(nir_wavelengths)) & (
