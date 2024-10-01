@@ -91,10 +91,14 @@ class GenerateEndmembers:
 
 class SimulateSpectra(GenerateEndmembers):
 
-    def __init__(self):
+    def __init__(
+        self,
+        cfg: file_ops.RunOptPipeConfig,
+        gcfg: file_ops.GlobalOptPipeConfig,
+    ):
         self.cfg = cfg
         self.gcfg = gcfg
-        self.aop_args = aop_args
+        # self.sim_params = self.cfg.simulation
 
     def spread_spectra(self):
         self.raw_spectra, self.spectra_metadata = (
@@ -102,13 +106,12 @@ class SimulateSpectra(GenerateEndmembers):
                 wvs=self.wvs,
                 endmember_array=self.endmembers,
                 AOP_args=self.aop_args,
-                Rb_vals=sim_params["Rb_vals"],
-                N=sim_params["N"],
-                n_noise_levels=sim_params["n_noise_levels"],
-                noise_lims=sim_params["noise_lims"],
-                depth_lims=sim_params["depth_lims"],
-                k_lims=sim_params["k_lims"],
-                bb_lims=sim_params["bb_lims"],
+                Rb_vals=self.cfg.simulation["Rb_vals"],
+                N=self.cfg.simulation["N"],
+                noise_lims=self.cfg.simulation["noise_lims"],
+                depth_lims=self.cfg.simulation["depth_lims"],
+                k_lims=self.cfg.simulation["k_lims"],
+                bb_lims=self.cfg.simulation["bb_lims"],
             )
         )
 
@@ -116,16 +119,16 @@ class SimulateSpectra(GenerateEndmembers):
         self.raw_spectra, self.spectra_metadata = spectrum_utils.simulate_spectra(
             endmember_array=self.endmembers,
             AOP_args=self.aop_args,
-            Rb_vals=sim_params["Rb_vals"],
-            N=sim_params["N"],
-            n_depths=sim_params["n_depths"],
-            depth_lims=sim_params["depth_lims"],
-            n_ks=sim_params["n_ks"],
-            k_lims=sim_params["k_lims"],
-            n_bbs=sim_params["n_bbs"],
-            bb_lims=sim_params["bb_lims"],
-            n_noise_levels=sim_params["n_noise_levels"],
-            noise_lims=sim_params["noise_lims"],
+            Rb_vals=self.cfg.simulation["Rb_vals"],
+            N=self.cfg.simulation["N"],
+            n_depths=self.cfg.simulation["n_depths"],
+            depth_lims=self.cfg.simulation["depth_lims"],
+            n_ks=self.cfg.simulation["n_ks"],
+            k_lims=self.cfg.simulation["k_lims"],
+            n_bbs=self.cfg.simulation["n_bbs"],
+            bb_lims=self.cfg.simulation["bb_lims"],
+            n_noise_levels=self.cfg.simulation["n_noise_levels"],
+            noise_lims=self.cfg.simulation["noise_lims"],
         )
 
     def handle_metadata(self):
@@ -144,16 +147,6 @@ class SimulateSpectra(GenerateEndmembers):
         self.aop_args = spectrum_utils.process_aop_model(
             self.aop_model, self.cfg.sensor_range
         )
-        # # aop_sub = self.aop_model
-        # aop_sub = self.aop_model.loc[
-        #     min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
-        # ]
-        # self.aop_args = (
-        #     aop_sub.bb_m.values,
-        #     aop_sub.bb_c.values,
-        #     aop_sub.Kd_m.values,
-        #     aop_sub.Kd_c.values,
-        # )
 
     def generate_simulated_spectra(self):
         self.load_aop_model()
@@ -193,6 +186,7 @@ class OptPipe:
         self.gcfg = glob_cfg
         self.endmember_map = self.gcfg.endmember_map
         self.cfg = run_cfg
+
         # self.exec_kwargs = exec_kwargs
 
     def preprocess_spectra(self):
@@ -252,7 +246,6 @@ class OptPipe:
                     AOP_args=self.aop_args,
                     Rb_vals=sim_params["Rb_vals"],
                     N=sim_params["N"],
-                    n_noise_levels=sim_params["n_noise_levels"],
                     noise_lims=sim_params["noise_lims"],
                     depth_lims=sim_params["depth_lims"],
                     k_lims=sim_params["k_lims"],
@@ -294,15 +287,8 @@ class OptPipe:
     def load_aop_model(self):
         """Load the AOP model dependent on the specified group"""
         self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
-        # aop_sub = self.aop_model
-        aop_sub = self.aop_model.loc[
-            min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
-        ]
-        self.aop_args = (
-            aop_sub.bb_m.values,
-            aop_sub.bb_c.values,
-            aop_sub.Kd_m.values,
-            aop_sub.Kd_c.values,
+        self.aop_args = spectrum_utils.process_aop_model(
+            self.aop_model, self.cfg.sensor_range
         )
 
     def return_objective_fn(self):
