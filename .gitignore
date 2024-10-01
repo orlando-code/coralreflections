@@ -168,3 +168,5 @@ tmp/
 results/
 **/.DS_Store
 **.vscode/
+distributions/
+models/
