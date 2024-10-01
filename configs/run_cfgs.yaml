@@ -12,18 +12,18 @@
     endmember_source: 'spectral_library'
     endmember_dimensionality_reduction: mean
     endmember_normalisation: false
-    endmember_class_schema: inorganic_organic
+    endmember_class_schema: three_endmember
     spectra_normalisation: false
   simulation:
     type: "spread"
-    N: 100
-    Rb_vals: [0,1]
+    N: 1000
+    Rb_vals: [1, 0.2, 0]
     n_depths: 10
-    depth_lims: [0, 10]
+    depth_lims: [0, 16.8]
     n_ks: 10
-    k_lims: [0, 0.4]
+    k_lims: [0.01688, 3.17231]
     n_bbs: 10
-    bb_lims: [0.01, 0.03]
+    bb_lims: [0, 0.41123]
     n_noise_levels: 10
     noise_lims: [0.001, 0]
     noise_ind: 0  # TODO: remove unnecessary noise vars
