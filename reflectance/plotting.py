@@ -73,16 +73,24 @@ def generate_spectra_color(
     """
     blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
 
-    spectra = spectra_df.values
-    wvs = spectra_df.columns
-    rgb_values = np.array(
-        [
-            spectrum_utils.rgb_from_hyperspectral(wvs, s, red_wvs, green_wvs, blue_wvs)
-            for s in spectra
-        ]
-    )
+    wvs = spectra_df.columns.to_numpy()
+    spectra = spectra_df.to_numpy()
 
-    reds, greens, blues = rgb_values[:, 0], rgb_values[:, 1], rgb_values[:, 2]
+    red_mask = (wvs > red_wvs[0]) & (wvs < red_wvs[1])
+    green_mask = (wvs > green_wvs[0]) & (wvs < green_wvs[1])
+    blue_mask = (wvs > blue_wvs[0]) & (wvs < blue_wvs[1])
+
+    red_vals = np.nanmean(spectra[:, red_mask], axis=1)
+    green_vals = np.nanmean(spectra[:, green_mask], axis=1)
+    blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
+    rgb_values = np.vstack((red_vals, green_vals, blue_vals)).T
+
+    return visualise_spectral_colours(rgb_values, vis_percentiles)
+
+
+def visualise_spectral_colours(
+    rgb_values: np.array, vis_percentiles: tuple[float] = (1, 99)
+) -> np.ndarray:
     # visualise via percentiles percentiles
     percentiles = np.percentile(rgb_values, vis_percentiles, axis=0)
     norm_rgb_values = (rgb_values - percentiles[0]) / (percentiles[1] - percentiles[0])
