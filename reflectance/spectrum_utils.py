@@ -100,6 +100,7 @@ def process_aop_model(aop_model, sensor_range):
         aop_sub.Kd_m.values,
         aop_sub.Kd_c.values,
     )
+    return aop_args
 
 
 # PREPROCESSING
