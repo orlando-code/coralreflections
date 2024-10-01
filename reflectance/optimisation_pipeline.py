@@ -89,6 +89,95 @@ class GenerateEndmembers:
         return self.endmembers
 
 
+class SimulateSpectra(GenerateEndmembers):
+
+    def __init__(self):
+        self.cfg = cfg
+        self.gcfg = gcfg
+        self.aop_args = aop_args
+
+    def spread_spectra(self):
+        self.raw_spectra, self.spectra_metadata = (
+            spectrum_utils.spread_simulate_spectra(
+                wvs=self.wvs,
+                endmember_array=self.endmembers,
+                AOP_args=self.aop_args,
+                Rb_vals=sim_params["Rb_vals"],
+                N=sim_params["N"],
+                n_noise_levels=sim_params["n_noise_levels"],
+                noise_lims=sim_params["noise_lims"],
+                depth_lims=sim_params["depth_lims"],
+                k_lims=sim_params["k_lims"],
+                bb_lims=sim_params["bb_lims"],
+            )
+        )
+
+    def regular_spectra(self):
+        self.raw_spectra, self.spectra_metadata = spectrum_utils.simulate_spectra(
+            endmember_array=self.endmembers,
+            AOP_args=self.aop_args,
+            Rb_vals=sim_params["Rb_vals"],
+            N=sim_params["N"],
+            n_depths=sim_params["n_depths"],
+            depth_lims=sim_params["depth_lims"],
+            n_ks=sim_params["n_ks"],
+            k_lims=sim_params["k_lims"],
+            n_bbs=sim_params["n_bbs"],
+            bb_lims=sim_params["bb_lims"],
+            n_noise_levels=sim_params["n_noise_levels"],
+            noise_lims=sim_params["noise_lims"],
+        )
+
+    def handle_metadata(self):
+        # reshape array and metadata to two dataframes
+        self.raw_spectra = pd.DataFrame(
+            raw_spectra.reshape(-1, raw_spectra.shape[-1]),
+            columns=wvs,
+        )
+        self.spectra_metadata = spectra_metadata
+        # concatenate metadata to spectra
+        self.sim_spectra = pd.concat([self.spectra_metadata, self.raw_spectra], axis=1)
+
+    def load_aop_model(self):
+        """Load the AOP model dependent on the specified group"""
+        self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
+        self.aop_args = spectrum_utils.process_aop_model(
+            self.aop_model, self.cfg.sensor_range
+        )
+        # # aop_sub = self.aop_model
+        # aop_sub = self.aop_model.loc[
+        #     min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+        # ]
+        # self.aop_args = (
+        #     aop_sub.bb_m.values,
+        #     aop_sub.bb_c.values,
+        #     aop_sub.Kd_m.values,
+        #     aop_sub.Kd_c.values,
+        # )
+
+    def generate_simulated_spectra(self):
+        self.load_aop_model()
+        self.wvs = self.aop_model.loc[
+            min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+        ].index
+
+        self.endmembers = GenerateEndmembers(
+            self.gcfg.endmember_schema[self.cfg.endmember_class_schema],
+            self.cfg.endmember_dimensionality_reduction,
+            self.cfg.endmember_normalisation,
+            self.gcfg.spectral_library_fp,
+        ).generate_endmembers()
+        match self.cfg.simulation["type"]:
+            case "spread":
+                self.spread_spectra()
+            case "regular":
+                self.regular_spectra()
+            case _:
+                raise ValueError(
+                    f"Simulation type {self.cfg.simulation['type']} not recognised"
+                )
+
+
 class OptPipe:
     """
     Class to run the optimisation pipeline for a range of parameterisation schema
@@ -170,7 +259,6 @@ class OptPipe:
                     bb_lims=sim_params["bb_lims"],
                 )
             elif sim_params["type"] == "regular":
-                sim_params = self.cfg.simulation
                 raw_spectra, spectra_metadata = spectrum_utils.simulate_spectra(
                     endmember_array=self.endmembers,
                     AOP_args=self.aop_args,
