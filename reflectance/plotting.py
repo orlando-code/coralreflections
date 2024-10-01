@@ -419,12 +419,14 @@ def plot_proportions(data: dict, true_ratio: list[float]):
 def initialise_square_plot_grid(
     n_plots, n_cols=3, figsize=(15, 15), constrained_layout: bool = True, dpi: int = 300
 ):
+    if n_plots == 1:
+        fig, axs = plt.subplots(1, 1, figsize=figsize, dpi=dpi)
+        return fig, axs
     n_rows = int(np.ceil(n_plots / n_cols))
-    print(n_rows)
     fig, axs = plt.subplots(
         n_rows,
         n_cols,
-        figsize=(6, n_rows * 2),
+        figsize=(6, n_rows * 3),
         constrained_layout=constrained_layout,
         dpi=dpi,
         sharex=True,
@@ -436,59 +438,150 @@ def initialise_square_plot_grid(
     return fig, axs
 
 
+def plot_regression_axis(
+    fig,
+    ax,
+    test_data: pd.DataFrame,
+    pred_data: np.array,
+    labels: pd.DataFrame,
+    metadata: pd.DataFrame = None,
+    color_by: str = "Depth",
+):
+
+    if metadata is not None:
+        color_map = plt.cm.get_cmap("viridis_r" if color_by == "Depth" else "tab20")
+        if color_by == "Locale":
+            unique_locales = metadata["Locale"].unique()
+            locale_to_color = {
+                locale: color_map(i / len(unique_locales))
+                for i, locale in enumerate(unique_locales)
+            }
+            colors = metadata["Locale"].map(locale_to_color)
+            scatter = ax.scatter(test_data, pred_data, s=5, alpha=0.3, c=colors)
+            handles = [
+                plt.Line2D(
+                    [0],
+                    [0],
+                    marker="o",
+                    color="w",
+                    markerfacecolor=locale_to_color[locale],
+                    markersize=5,
+                    label=locale,
+                )
+                for locale in unique_locales
+            ]
+        elif color_by == "Depth":
+            scatter = ax.scatter(
+                test_data,
+                pred_data,
+                s=5,
+                alpha=0.3,
+                c=metadata["Depth"].values,
+                cmap=color_map,
+            )
+            # if i == 0:
+            cbar_ax = fig.add_axes([0.3, 0.05, 0.4, 0.02])
+            cbar = fig.colorbar(scatter, cax=cbar_ax, orientation="horizontal")
+            cbar.set_label("Depth", fontsize=8)
+            cbar.ax.tick_params(labelsize=6)
+
+        # plot error bars
+        ax.errorbar(
+            test_data,
+            pred_data,
+            # yerr=metadata["std_dev"].values,
+            yerr=metadata[
+                metadata.columns[[labels.columns[0] in col for col in metadata.columns]]
+            ].values.squeeze(),
+            fmt="none",
+            alpha=0.01,
+            color="k",
+            zorder=-10,
+        )
+    else:
+        scatter = ax.scatter(test_data, pred_data, s=5, alpha=0.3)
+
+    ax.text(
+        0.02,
+        0.98,
+        labels.columns[0],
+        ha="left",
+        va="top",
+        transform=ax.transAxes,
+        fontsize=6,
+    )
+    ax.axis("square")
+    ax.set_xticks(np.arange(0, 1.1, 0.5))
+    ax.set_yticks(np.arange(0, 1.1, 0.5))
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+    ax.tick_params(axis="both", which="major", labelsize=6)
+    ax.grid(True, which="both", ls="-", alpha=0.3)
+    ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
+
+    if np.sum(pred_data > 0.001):
+        xs = np.linspace(0, 1, 100)
+        try:
+            p = np.polyfit(test_data, pred_data, 1)
+            y_est = np.polyval(p, xs)
+            ax.plot(xs, y_est, color="r", ls=":", alpha=0.8)
+            y_err = test_data.std() * np.sqrt(
+                1 / len(xs) + (xs - xs.mean()) ** 2 / np.sum((xs - xs.mean()) ** 2)
+            )
+            ax.fill_between(xs, y_est - y_err, y_est + y_err, alpha=0.2)
+            r2 = r2_score(test_data, pred_data)
+            ax.set_title(
+                f"$r^2$ = {r2:.2f}\nN = {len(np.nonzero(test_data)[0])}", fontsize=6
+            )
+            ax.text(
+                0.98,
+                0.02,
+                f"m = {p[0]:.2f}\nc = {p[1]:.2f}",
+                ha="right",
+                va="bottom",
+                transform=ax.transAxes,
+                fontsize=6,
+            )
+        except np.linalg.LinAlgError:
+            pass
+
+    if color_by == "Locale" and metadata is not None:
+        fig.legend(handles=handles, loc="lower center", fontsize=6, ncol=len(handles))
+
+
 # ML
 def plot_regression_results(
-    test_data: pd.DataFrame, pred_data: np.array, labels: pd.DataFrame
+    test_data: pd.DataFrame,
+    pred_data: np.array,
+    labels: pd.DataFrame,
+    metadata: pd.DataFrame = None,
+    color_by: str = "Depth",
 ):
     num_plots = test_data.shape[1]
     fig, axs = initialise_square_plot_grid(num_plots)
-    # TODO: fix shading
 
-    for i, (endmember, ax) in enumerate(zip(labels.columns, axs.flat)):
-        pred = pred_data[:, i]
-        true = test_data.iloc[:, i]
-        ax.scatter(true, pred, s=5, alpha=0.3)
-        ax.text(
-            0.02,
-            0.98,
-            endmember,
-            ha="left",
-            va="top",
-            transform=ax.transAxes,
-            fontsize=6,
+    xs = np.linspace(0, np.max(test_data), 100)
+    color_map = plt.cm.get_cmap("viridis_r" if color_by == "Depth" else "tab20")
+
+    for i, (endmember, ax) in enumerate(
+        zip(labels.columns, axs.flat if num_plots > 1 else axs)
+    ):
+        if len(labels.columns) > 1:  # multiclass
+            pred = pred_data[:, i]
+            true = test_data.iloc[:, i]
+        else:
+            pred = pred_data
+            true = test_data.values[:, 0]
+
+        plot_regression_axis(
+            fig,
+            ax,
+            true,
+            pred,
+            labels.iloc[:, i : i + 1],
+            metadata,
+            color_by,
         )
-        ax.axis("square")
-        ax.set_xlim(0, 1)
-        ax.set_ylim(0, 1)
-        # set grid
-        ax.grid(True, which="both", ls="-", alpha=0.3)
-        # set xtiuck fontsize
-        ax.tick_params(axis="both", which="major", labelsize=6)
-        if np.sum(pred > 0.001):
-            ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
-            try:
-                p = np.polyfit(true, pred, 1)
-                y_est = np.polyval(p, true)
-                ax.text(
-                    0.98,
-                    0.02,
-                    f"m = {p[0]:.2f}\nc = {p[1]:.2f}",
-                    ha="right",
-                    va="bottom",
-                    transform=ax.transAxes,
-                    fontsize=6,
-                )
-                y_err = true.std() * np.sqrt(
-                    1 / len(true)
-                    + (true - true.mean()) ** 2 / np.sum((true - true.mean()) ** 2)
-                )
-
-                r2 = r2_score(true, pred)
-                ax.plot(true, y_est, color="r", ls=":", alpha=0.8)
-                # ax.fill_between(true, y_est - y_err, y_est + y_err, alpha=0.8)
-            except np.linalg.LinAlgError:
-                pass
-        ax.set_title(f"$r^2$ = {r2:.2f}\nN = {len(np.nonzero(true)[0])}", fontsize=6)
 
 
 # DEPRECATED
