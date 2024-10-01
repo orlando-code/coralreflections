@@ -37,6 +37,7 @@ class MLDataPipe:
 
     def __init__(
         self,
+        data_source: str = "prism",
         endmember_class_schema: str = "three_endmember",
         gcfg: dict = file_ops.read_yaml(file_ops.CONFIG_DIR_FP / "glob_cfg.yaml"),
         train_ratio: float = 0.8,
@@ -45,6 +46,7 @@ class MLDataPipe:
         scaler_type: str = "minmax",
         random_seed: int = 42,
     ):
+        self.data_source = data_source
         self.endmember_class_schema = endmember_class_schema
         self.gcfg = gcfg
         self.train_ratio = train_ratio
@@ -59,7 +61,13 @@ class MLDataPipe:
             raw_spectra, spectrum_utils.NIR_WAVELENGTHS, spectrum_utils.SENSOR_RANGE
         )
 
-    # def load_simulation_spectra(self):
+    def load_fitted_spectra(self):
+        fit_fp = "/Users/rt582/Library/CloudStorage/OneDrive-UniversityofCambridge/cambridge/phd/coralreflections/results/fits/fit_results_1.csv"
+        fits = pd.read_csv(fit_fp, header=[0, 1])
+
+        fitted_spectra = fits.fitted_spectra
+        fitted_spectra.columns = fitted_spectra.columns.astype(float)
+        return fitted_spectra
 
     def normalise_data(self):
         scaler = spectrum_utils.instantiate_scaler(self.scaler_type)
@@ -133,14 +141,55 @@ class MLDataPipe:
             test_size=1 - self.train_ratio,
             random_state=self.random_seed,
         )
+        match self.data_source:
+            case "prism_fits":
+                fitted_spectra = self.load_fitted_spectra()
+                train_fitted_inds = self.X_train.index.intersection(
+                    fitted_spectra.index
+                )
+                self.X_train = pd.concat(
+                    [self.X_train, fitted_spectra.loc[train_fitted_inds]]
+                )
+                self.y_train = pd.concat(
+                    [self.y_train, self.y_train.loc[train_fitted_inds]]
+                )
+                train_val_inds = self.X_train.index.intersection(
+                    self.validation_data.index
+                )
+                remaining_inds = self.X_train.index.difference(train_val_inds)
+                self.labels = pd.concat(
+                    [
+                        self.labels.loc[train_val_inds],
+                        self.labels.loc[train_val_inds],
+                        self.labels.loc[remaining_inds],
+                    ]
+                )
 
     def generate_data(self):
-        match self.data_source:
-            case "prism":
-                self.load_prism_spectra()
-            case "simulation":
-                self.load_simulation_spectra()
         self.load_validation_data()
+        # match self.data_source:
+        #     case "prism":
+        #         self.load_prism_spectra()
+        #     case "fits" | "fitted":
+        #         self.load_fitted_spectra()
+        #     case "fits_og":
+        #         self.load_fitted_spectra()
+        #         start_fits = self.spectra
+        #         self.load_prism_spectra()
+        #         self.spectra = pd.concat([start_fits, self.spectra])
+        #         self.validation_data = pd.concat(
+        #             [self.validation_data, self.validation_data]
+        #         )
+        #     case "simulation":
+        #         self.load_simulation_spectra()
+        #     case _:
+        #         raise ValueError(f"Data source '{self.data_source}' not recognised")
+        match self.data_source:
+            case "prism" | "prism_fits":
+                self.load_prism_spectra()
+            case "fits":
+                self.spectra = self.load_fitted_spectra()
+
         match self.target:
             case "endmember":
                 self.generate_endmember_labels()
