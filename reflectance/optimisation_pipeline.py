@@ -108,7 +108,6 @@ class SimulateSpectra(GenerateEndmembers):
                 AOP_args=self.aop_args,
                 Rb_vals=self.cfg.simulation["Rb_vals"],
                 N=self.cfg.simulation["N"],
-                noise_lims=self.cfg.simulation["noise_lims"],
                 depth_lims=self.cfg.simulation["depth_lims"],
                 k_lims=self.cfg.simulation["k_lims"],
                 bb_lims=self.cfg.simulation["bb_lims"],
@@ -118,6 +117,7 @@ class SimulateSpectra(GenerateEndmembers):
     def regular_spectra(self):
         self.raw_spectra, self.spectra_metadata = spectrum_utils.simulate_spectra(
             endmember_array=self.endmembers,
+            wvs=self.wvs,
             AOP_args=self.aop_args,
             Rb_vals=self.cfg.simulation["Rb_vals"],
             N=self.cfg.simulation["N"],
@@ -132,12 +132,6 @@ class SimulateSpectra(GenerateEndmembers):
         )
 
     def handle_metadata(self):
-        # reshape array and metadata to two dataframes
-        self.raw_spectra = pd.DataFrame(
-            raw_spectra.reshape(-1, raw_spectra.shape[-1]),
-            columns=wvs,
-        )
-        self.spectra_metadata = spectra_metadata
         # concatenate metadata to spectra
         self.sim_spectra = pd.concat([self.spectra_metadata, self.raw_spectra], axis=1)
 
@@ -160,6 +154,10 @@ class SimulateSpectra(GenerateEndmembers):
             self.cfg.endmember_normalisation,
             self.gcfg.spectral_library_fp,
         ).generate_endmembers()
+        self.endmembers = spectrum_utils.crop_spectra_to_range(
+            self.endmembers, self.cfg.sensor_range
+        )
+
         match self.cfg.simulation["type"]:
             case "spread":
                 self.spread_spectra()
@@ -169,6 +167,8 @@ class SimulateSpectra(GenerateEndmembers):
                 raise ValueError(
                     f"Simulation type {self.cfg.simulation['type']} not recognised"
                 )
+        self.handle_metadata()
+        return self.sim_spectra
 
 
 class OptPipe:
