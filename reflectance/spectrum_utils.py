@@ -203,7 +203,7 @@ def simulate_spectra(
     - wvs (np.array): array of wavelengths over which spectrum is defined
     - AOP_args: (tuple[np.array, np.array, np.array, np.array]): tuple of backscatter and attenuation coefficients as function of wavelength
     - Rb_vals (tuple): Rb values for each endmember
-    - N (int): number of samples to generate
+    - N (int): number of samples to generate for each set of parameters (only random noise varies)
     - n_depths (int): number of depths to generate
     - depth_lims (tuple): min and max depth values
     - n_ks (int): number of K values to generate
@@ -244,10 +244,14 @@ def simulate_spectra(
                                 depth,
                                 AOP_args,
                                 *Rb_vals,
-                            )  # TODO: AOP_args
+                            )
                             sim += np.random.normal(0, nl, len(sim))
                             sim_spectra[sample, d, k, b, n] = sim
                             pbar.update(1)
+    sim_spectra = pd.DataFrame(
+        sim_spectra.reshape(-1, sim_spectra.shape[-1]),
+        columns=wvs,
+    )
     return sim_spectra, metadata
 
 
@@ -267,10 +271,22 @@ def spread_simulate_spectra(
         f"Mismatch between number of endmembers ({endmember_array.shape[0]}) "
         f"and number of Rb values ({len(Rb_vals)})"
     )
+    weibull_min_vals = {
+        "c": 1.5341393039558309,
+        "loc": 0.28062690149136393,
+        "scale": 5.723423318320629,
+    }
+    weibull_pdf = stats.weibull_min.pdf(**depth_lims, **weibull_min_vals)
 
-    depths = np.linspace(*depth_lims, N)
-    Ks = np.linspace(*k_lims, N)
-    bbs = np.linspace(*bb_lims, N)
+    depths = np.random.choice(
+        np.linspace(*depth_lims, 1000), size=N, p=weibull_pdf / np.sum(weibull_pdf)
+    )
+    Ks = np.random.normal(
+        loc=np.mean(k_lims), scale=(k_lims[1] - k_lims[0]) / 4, size=N
+    )
+    bbs = np.random.normal(
+        loc=np.mean(bb_lims), scale=(bb_lims[1] - bb_lims[0]) / 4, size=N
+    )
 
     # store in metadata
     metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs, "noise": noise_level})
@@ -854,7 +870,7 @@ def calc_rolling_similarity(
 def instantiate_scaler(scaler_type: str):
     """Instantiate scaler"""
     match scaler_type:
-        case "zscore":
+        case "zscore" | "standard":
             return StandardScaler()
         case "minmax":
             return MinMaxScaler()
