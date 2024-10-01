@@ -170,3 +170,4 @@ results/
 **.vscode/
 distributions/
 models/
+*.xlsx
