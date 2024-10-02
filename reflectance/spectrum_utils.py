@@ -104,7 +104,9 @@ def process_aop_model(aop_model, sensor_range):
 
 
 # PREPROCESSING
-def deglint_spectra(spectra, nir_wavelengths: list[float] = None) -> pd.DataFrame:
+def deglint_spectra(
+    spectra, nir_wavelengths: list[float] = NIR_WAVELENGTHS
+) -> pd.DataFrame:
     glint_inds = (spectra.columns > min(nir_wavelengths)) & (
         spectra.columns < max(nir_wavelengths)
     )
@@ -120,7 +122,9 @@ def retrieve_subsurface_reflectance(
     return spectra / (constant + coeff * spectra)
 
 
-def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
+def crop_spectra_to_range(
+    spectra: pd.DataFrame, wv_range: tuple = SENSOR_RANGE
+) -> pd.DataFrame:
     """Crop spectra to specified wavelength range"""
     return spectra.loc[
         :, (spectra.columns >= min(wv_range)) & (spectra.columns <= max(wv_range))
