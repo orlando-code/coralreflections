@@ -94,11 +94,11 @@ def visualise_spectral_colours(
     rgb_values: np.array, vis_percentiles: tuple[float] = (1, 99)
 ) -> np.ndarray:
     # visualise via percentiles percentiles
-    percentiles = np.percentile(rgb_values, vis_percentiles, axis=0)
+    percentiles = np.nanpercentile(rgb_values, vis_percentiles, axis=0)
     norm_rgb_values = (rgb_values - percentiles[0]) / (percentiles[1] - percentiles[0])
     # Min-max normalization of values
-    maxes = np.max(norm_rgb_values, axis=0)
-    mins = np.min(norm_rgb_values, axis=0)
+    maxes = np.nanmax(norm_rgb_values, axis=0)
+    mins = np.nanmin(norm_rgb_values, axis=0)
     return (norm_rgb_values - mins) / (maxes - mins)
 
 
