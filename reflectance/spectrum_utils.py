@@ -1075,6 +1075,43 @@ def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
     return centre - width / 2, centre + width / 2  # TODO: probably unnecessary
 
 
+def visualise_satellite_from_prism(
+    prism_spectra: pd.DataFrame, response_fns: pd.DataFrame, bois: list[str]
+) -> pd.DataFrame:
+    interped_prism = spectrum_utils.interp_df(prism_spectra)
+    band_vals_df = calculate_band_values(response_fns, bois, interped_prism)
+    continuous_response_df = interped_prism * band_vals_df
+    return create_emulated_df(continuous_response_df)
+
+
+def calculate_band_values(
+    response_fns: pd.DataFrame, bois: list[str], interped_prism: pd.DataFrame
+) -> pd.DataFrame:
+    band_headers = [col for b in bois for col in response_fns.columns if b in col]
+    lim_bands = response_fns.index[
+        (response_fns.index >= min(interped_prism.columns))
+        & (response_fns.index <= max(interped_prism.columns))
+    ]
+    band_vals_df = response_fns[band_headers].loc[lim_bands]
+    band_vals_df.replace(
+        0, np.nan, inplace=True
+    )  # Replace 0 with NaN to ignore them in mean calculation
+    return band_vals_df.mean(
+        axis=1, skipna=True
+    )  # Calculate row-wise mean, ignoring NaN values
+
+
+def create_emulated_df(continuous_response_df: pd.DataFrame) -> pd.DataFrame:
+    df_filled = spectrum_utils.fill_clumps_with_mean(continuous_response_df)
+    emulated_df = pd.DataFrame(index=continuous_response_df.index)
+    emulated_df["B4"] = df_filled[round(plotting.SpectralColour().blue_peak)]
+    emulated_df["B3"] = df_filled[round(plotting.SpectralColour().green_peak)]
+    emulated_df["B2"] = df_filled[round(plotting.SpectralColour().red_peak)]
+    emulated_df["B8A"] = df_filled[round(plotting.SpectralColour().nir_peak)]
+    emulated_df = emulated_df.subtract(emulated_df["B8A"], axis=0).drop("B8A", axis=1)
+    return emulated_df.iloc[:, [2, 1, 0]]
+
+
 # DEPRECATED #
 
 # def rgb_from_hyperspectral(
