@@ -37,6 +37,7 @@ class SpectralColour:
         blue_width: float = 66,
         green_width: float = 36,
         red_width: float = 31,
+        nir_peak: float = 865,  # TODO: add nir width
     ):
         self.blue_peak = blue_peak
         self.green_peak = green_peak
@@ -44,6 +45,7 @@ class SpectralColour:
         self.blue_width = blue_width
         self.green_width = green_width
         self.red_width = red_width
+        self.nir_peak = nir_peak
 
     def generate_wv_lims(self):
         self.blue_wvs = spectrum_utils.range_from_centre_and_width(
