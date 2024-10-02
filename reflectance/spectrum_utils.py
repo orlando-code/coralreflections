@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
+from scipy.interpolate import interp1d
 
 # from dataclasses import asdict
 from itertools import product
@@ -24,8 +25,6 @@ from scipy import stats
 
 # fitting
 from scipy.optimize import minimize, Bounds
-
-# from scipy.interpolate import UnivariateSpline
 
 # custom
 from reflectance import file_ops
@@ -1030,6 +1029,45 @@ def generate_config_dicts(nested_dict):
 
 
 # GENERAL
+def fill_clumps_with_mean(df):
+    """
+    Fills NaN-separated clumps in each row of the DataFrame with the mean value of the clump.
+
+    Parameters:
+    df: pd.DataFrame - Input DataFrame with spectra where clumps of values are separated by NaNs.
+
+    Returns:
+    df_filled: pd.DataFrame - DataFrame with clumps filled by the mean of the respective clump.
+    """
+    df_filled = df.copy()  # Create a copy to avoid modifying the original
+
+    # Function to fill each row's clumps
+    def fill_row_clumps(row):
+        # Identify clumps by checking where non-NaN values change
+        clump_id = (
+            row.notna() != row.notna().shift()
+        ).cumsum()  # Groups contiguous clumps
+        # Group by clump ID and replace NaNs in each clump with the clump mean
+        return row.groupby(clump_id).transform(lambda g: g.fillna(g.mean()))
+
+    # Apply the function row-wise using apply() with axis=1
+    df_filled = df_filled.apply(fill_row_clumps, axis=1)
+
+    return df_filled
+
+
+def interp_df(df):
+    new_wvs = np.arange(round(min(df.columns)), round(max(df.columns)), 1)
+    interped_list = []
+
+    for idx, row in df.iterrows():
+        f_interp = interp1d(
+            df.columns, row.values, axis=0, bounds_error=False, fill_value="extrapolate"
+        )
+        interped_list.append(f_interp(new_wvs))
+
+    interped_df = pd.DataFrame(interped_list, index=df.index, columns=new_wvs)
+    return interped_df
 
 
 def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
@@ -1037,29 +1075,30 @@ def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
     return centre - width / 2, centre + width / 2  # TODO: probably unnecessary
 
 
-def rgb_from_hyperspectral(
-    wvs: np.array,
-    values: np.array,
-    red_wvs: tuple[float],
-    green_wvs: tuple[float],
-    blue_wvs: tuple[float],
-) -> pd.DataFrame:
-    """Generate RGB image from hyperspectral data using specified wavelengths."""
-    red_val = values[(wvs > red_wvs[0]) & (wvs < red_wvs[1])].mean(axis=0)
-    green_val = values[(wvs > green_wvs[0]) & (wvs < green_wvs[1])].mean(axis=0)
-    blue_val = values[(wvs > blue_wvs[0]) & (wvs < blue_wvs[1])].mean(axis=0)
-
-    # Normalize colors to the range [0, 1]
-    # max_val = max(red_val, green_val, blue_val)
-    max_val = 2000
-    if max_val > 0:
-        red_val /= max_val
-        green_val /= max_val
-        blue_val /= max_val
-    return red_val, green_val, blue_val
-
-
 # DEPRECATED #
+
+# def rgb_from_hyperspectral(
+#     wvs: np.array,
+#     values: np.array,
+#     red_wvs: tuple[float],
+#     green_wvs: tuple[float],
+#     blue_wvs: tuple[float],
+# ) -> pd.DataFrame:
+#     """Generate RGB image from hyperspectral data using specified wavelengths."""
+#     red_val = values[(wvs > red_wvs[0]) & (wvs < red_wvs[1])].mean(axis=0)
+#     green_val = values[(wvs > green_wvs[0]) & (wvs < green_wvs[1])].mean(axis=0)
+#     blue_val = values[(wvs > blue_wvs[0]) & (wvs < blue_wvs[1])].mean(axis=0)
+
+#     # Normalize colors to the range [0, 1]
+#     # max_val = max(red_val, green_val, blue_val)
+#     max_val = 2000
+#     if max_val > 0:
+#         red_val /= max_val
+#         green_val /= max_val
+#         blue_val /= max_val
+#     return red_val, green_val, blue_val
+
+
 # # been surpassed by function for minimisation
 # def sub_surface_reflectance(wv, bb, K, H, Rb):
 #     sub = AOP_margs,oc[wv]
