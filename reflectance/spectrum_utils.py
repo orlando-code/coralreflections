@@ -131,7 +131,11 @@ def crop_spectra_to_range(
     ]
 
 
-def preprocess_prism_spectra(raw_spectra, nir_wavelengths, sensor_range):
+def preprocess_prism_spectra(
+    raw_spectra,
+    nir_wavelengths: tuple = NIR_WAVELENGTHS,
+    sensor_range: tuple = SENSOR_RANGE,
+):
     """
     Preprocess the raw prism spectra to remove the NIR wavelengths and sensor range
 
