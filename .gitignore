@@ -167,3 +167,8 @@ data/
 tmp/
 results/
 **/.DS_Store
+**.vscode/
+distributions/
+models/
+*.xlsx
+satellite_response_functions/

@@ -13,6 +13,7 @@ import io
 BASE_DIR_FP = Path(__file__).resolve().parent.parent
 MODULE_DIR_FP = BASE_DIR_FP / "reflectance"
 RESOURCES_DIR_FP = MODULE_DIR_FP / "resources"
+MODELS_DIR_FP = RESOURCES_DIR_FP / "models"
 DATA_DIR_FP = BASE_DIR_FP / "data"
 RESULTS_DIR_FP = BASE_DIR_FP / "results"
 TMP_DIR_FP = BASE_DIR_FP / "tmp"
@@ -21,6 +22,7 @@ CONFIG_DIR_FP = BASE_DIR_FP / "configs"
 
 @dataclass
 class GlobalOptPipeConfig:
+    spectra_source: str
     spectra_fp: str
     spectral_library_fp: str
     validation_data_fp: str
@@ -29,6 +31,7 @@ class GlobalOptPipeConfig:
     endmember_schema: dict
 
     def __init__(self, conf: dict):
+        self.spectra_source = conf["spectra_source"]
         self.spectra_fp = conf["spectra_fp"]
         self.spectral_library_fp = conf["spectral_library_fp"]
         self.validation_data_fp = conf["validation_data_fp"]
@@ -39,10 +42,14 @@ class GlobalOptPipeConfig:
 
 @dataclass
 class RunOptPipeConfig:
+    processing: dict
+    fitting: dict
+    simulation: dict
     aop_group_num: int
     nir_wavelengths: tuple[float]
     sensor_range: tuple[float]
-    endmember_type: str
+    endmember_source: str
+    endmember_dimensionality_reduction: str
     endmember_normalisation: str | bool
     endmember_class_schema: int
     spectra_normalisation: str | bool
@@ -52,21 +59,66 @@ class RunOptPipeConfig:
     H_bounds: tuple[float]
     solver: str
     tol: float
+    """TODO: currently having cake and eating it here, since duplicating attributes from the nested dictionaries.
+    If I unpacked the dictionaries in the RunOpt I abstract away from the dataclass definition
+    """
 
     def __init__(self, conf: dict):
-        self.aop_group_num = conf["processing"]["aop_group_num"]
-        self.nir_wavelengths = conf["processing"]["nir_wavelengths"]
-        self.sensor_range = conf["processing"]["sensor_range"]
-        self.endmember_type = conf["processing"]["endmember_type"]
-        self.endmember_normalisation = conf["processing"]["endmember_normalisation"]
-        self.endmember_class_schema = conf["processing"]["endmember_class_schema"]
-        self.spectra_normalisation = conf["processing"]["spectra_normalisation"]
-        self.objective_fn = conf["fitting"]["objective_fn"]
-        self.bb_bounds = conf["fitting"]["bb_bounds"]
-        self.Kd_bounds = conf["fitting"]["Kd_bounds"]
-        self.H_bounds = conf["fitting"]["H_bounds"]
-        self.solver = conf["fitting"]["solver"]
-        self.tol = conf["fitting"]["tol"]
+        self.processing = conf["processing"]
+        self.fitting = conf["fitting"]
+        self.simulation = conf["simulation"]
+        # data processing
+        self.aop_group_num = self.processing["aop_group_num"]
+        self.nir_wavelengths = self.processing["nir_wavelengths"]
+        self.sensor_range = self.processing["sensor_range"]
+        self.endmember_source = self.processing["endmember_source"]
+        self.endmember_dimensionality_reduction = self.processing[
+            "endmember_dimensionality_reduction"
+        ]
+        self.endmember_normalisation = self.processing["endmember_normalisation"]
+        self.endmember_class_schema = self.processing["endmember_class_schema"]
+        self.spectra_normalisation = self.processing["spectra_normalisation"]
+        # fitting
+        self.objective_fn = self.fitting["objective_fn"]
+        self.Rb_init = self.fitting["Rb_init"]
+        self.bb_bounds = self.fitting["bb_bounds"]
+        self.Kd_bounds = self.fitting["Kd_bounds"]
+        self.H_bounds = self.fitting["H_bounds"]
+        self.endmember_bounds = self.fitting["endmember_bounds"]
+        self.solver = self.fitting["solver"]
+        self.tol = self.fitting["tol"]
+
+    def get_dict_values(self):
+        """Return dictionary containing only keys whose values are dictionaries."""
+        return {k: v for k, v in self.__dict__.items() if isinstance(v, dict)}
+
+    def get_config_summaries(self):
+        """Return dictionaries to unpack for config (these to be processed for results summary)"""
+        return unpack_nested_dict({k: v for k, v in self.get_dict_values().items()})
+
+
+def unpack_nested_dict(d, parent_key=()):
+    items = []
+    for k, v in d.items():
+        new_key = parent_key + (k,)
+        if isinstance(v, dict):
+            items.extend(unpack_nested_dict(v, new_key).items())
+        else:
+            items.append((new_key, v))
+    return dict(items)
+
+
+def skip_textfile_rows(fp, start_str):
+    with open(fp, "r") as f:
+        start_found = False
+        skiprows = 0
+        while not start_found:
+            line = f.readline()
+            if line.startswith(start_str):
+                start_found = True
+            else:
+                skiprows += 1
+    return skiprows
 
 
 def get_dir(dir_fp: str | Path) -> Path:
@@ -83,15 +135,20 @@ def get_f(fp: str | Path) -> Path:
     return file_path
 
 
-def resolve_paths(config, base_dir):
+def resolve_path(fp, base_dir=BASE_DIR_FP):
+    return (base_dir / Path(fp)).resolve()
+
+
+def resolve_paths(config: dict, base_dir: Path):
     """
-    Resolve relative paths in the configuration to absolute paths.
+    Resolve relative paths in the configuration dictionary to absolute paths.
     """
     for key, value in config.items():
         if isinstance(value, str) and (
             value.startswith("data/") or value.startswith("reflectance/")
         ):
-            config[key] = (base_dir / value).resolve()
+            value = resolve_path(value, base_dir)
+        config[key] = value
     return config
 
 

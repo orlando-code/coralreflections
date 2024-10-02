@@ -8,23 +8,42 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
+    # endmember_source: data/AOP_models/Rb_model_single_coefficient.txt
+    endmember_source: 'spectral_library'
+    endmember_dimensionality_reduction: mean
+    endmember_normalisation: false
+    endmember_class_schema: three_endmember
     spectra_normalisation: false
+  simulation:
+    type: "spread"
+    N: 1000
+    Rb_vals: [1, 0.2, 0]
+    n_depths: 10
+    depth_lims: [0, 16.8]
+    n_ks: 10
+    k_lims: [0.01688, 3.17231]
+    n_bbs: 10
+    bb_lims: [0, 0.41123]
+    n_noise_levels: 10
+    noise_lims: [0.001, 0]
+    noise_ind: 0  # TODO: remove unnecessary noise vars
   fitting:
-    objective_fn: spectral_angle
+    objective_fn: r2
+    Rb_init: 0
     bb_bounds:
       - 0
-      - 0.4
+      - 0.41123
     Kd_bounds:
-      - 0
-      - 0.4
+      - 0.01688
+      - 3.17231
     H_bounds:
       - 0
       - 30
+    endmember_bounds:
+      - 0
+      - np.inf
     solver: Nelder-Mead
-    tol: 1e-3
+    tol: 1e9
 
 - 
   processing:
@@ -35,7 +54,7 @@
     sensor_range:
       - 450
       - 690
-    endmember_type: mean
+    endmember_dimensionality_reduction: mean
     endmember_normalisation: minmax
     endmember_class_schema: inorganic_organic
     spectra_normalisation: false
@@ -43,204 +62,12 @@
     objective_fn: r2
     bb_bounds:
       - 0
-      - 0.4
+      - 0.41123
     Kd_bounds:
-      - 0
-      - 0.4
+      - 0.01688
+      - 3.17231
     H_bounds:
       - 0
       - 30
     solver: Nelder-Mead
     tol: 1e-3
-
-- 
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: euclidean_distance
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-
-- 
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: spectral_angle_w1
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-
-
-- 
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: spectral_similarity_gradient
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-
-- 
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: mahalanobis_distance  # DIDN'T WORK
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-
-- 
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: spectral_information_divergence
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-      
--
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: sidsam
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-      
--
-  processing:
-    aop_group_num: 1
-    nir_wavelengths:
-      - 750
-      - 1100
-    sensor_range:
-      - 450
-      - 690
-    endmember_type: mean
-    endmember_normalisation: minmax
-    endmember_class_schema: inorganic_organic
-    spectra_normalisation: false
-  fitting:
-    objective_fn: jmsam
-    bb_bounds:
-      - 0
-      - 0.4
-    Kd_bounds:
-      - 0
-      - 0.4
-    H_bounds:
-      - 0
-      - 30
-    solver: Nelder-Mead
-    tol: 1e-3
-      
-

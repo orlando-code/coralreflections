@@ -1,3 +1,4 @@
+spectra_source: prism
 spectra_fp: data/CORAL_validation_spectra.csv
 spectral_library_fp: reflectance/resources/spectral_library_clean_v3_PRISM_wavebands.csv
 validation_data_fp: data/CORAL_validation_data.csv
@@ -32,46 +33,84 @@ endmember_map:
     - othSeagr
 # other (['othClam', 'othInvert', 'othOther', 'othSponge', 'othUrchin']) is ignored
 endmember_schema:
-  - four_endmember:
-      algae:
-        - algae_fleshy_brown
-        - algae_fleshy_green
-        - algae_fleshy_red
-        - algae_turf
-        - seagrass
-      CCA:
-        - algae_crustose_coralline
-      coral:
-        - coral_blue
-        - coral_brown
-        - octocoral
+  three_endmember:
+    algae:
+      - algae_fleshy_brown
+      - algae_fleshy_green
+      - algae_fleshy_red
+      - algae_turf
+      - seagrass
+      - algae_crustose_coralline
+    coral:
+      - coral_blue
+      - coral_brown
+      - octocoral
+    sand:
+      - sand
+      - mud
+  four_endmember:
+    algae:
+      - algae_fleshy_brown
+      - algae_fleshy_green
+      - algae_fleshy_red
+      - algae_turf
+      - seagrass
+    CCA:
+      - algae_crustose_coralline
+    coral:
+      - coral_blue
+      - coral_brown
+      - octocoral
+    sand:
+      - sand
+      - mud
+  all:
+    benthos:
+      - algae_fleshy_brown
+      - algae_fleshy_green
+      - algae_fleshy_red
+      - algae_turf
+      - seagrass
+      - algae_crustose_coralline
+      - coral_blue
+      - coral_brown
+      - octocoral
+      - sand
+      - mud
+  inorganic_organic:
+    inorganic:
+      - sand
+      - mud
+    organic:
+      - algae_fleshy_brown
+      - algae_fleshy_green
+      - algae_fleshy_red
+      - algae_turf
+      - seagrass
+      - algae_crustose_coralline
+      - coral_blue
+      - coral_brown
+      - octocoral
+  individual:
       sand:
         - sand
+      mud:
         - mud
-  - all:
-      benthos:
+      algae_fleshy_brown:
         - algae_fleshy_brown
+      algae_fleshy_green:
         - algae_fleshy_green
+      algae_fleshy_red:
         - algae_fleshy_red
+      algae_turf:
         - algae_turf
+      seagrass:
         - seagrass
+      algae_crustose_coralline:
         - algae_crustose_coralline
+      coral_blue:
         - coral_blue
+      coral_brown:
         - coral_brown
-        - octocoral
-        - sand
-        - mud
-  - inorganic_organic:
-      inorganic:
-        - sand
-        - mud
-      organic:
-        - algae_fleshy_brown
-        - algae_fleshy_green
-        - algae_fleshy_red
-        - algae_turf
-        - seagrass
-        - algae_crustose_coralline
-        - coral_blue
-        - coral_brown
+      octocoral:
         - octocoral
