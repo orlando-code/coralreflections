@@ -171,3 +171,4 @@ results/
 distributions/
 models/
 *.xlsx
+satellite_response_functions/
