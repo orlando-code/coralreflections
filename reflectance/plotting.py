@@ -93,13 +93,18 @@ def generate_spectra_color(
 def visualise_spectral_colours(
     rgb_values: np.array, vis_percentiles: tuple[float] = (1, 99)
 ) -> np.ndarray:
-    # visualise via percentiles percentiles
+    # Calculate percentiles for normalization
     percentiles = np.nanpercentile(rgb_values, vis_percentiles, axis=0)
-    norm_rgb_values = (rgb_values - percentiles[0]) / (percentiles[1] - percentiles[0])
-    # Min-max normalization of values
-    maxes = np.nanmax(norm_rgb_values, axis=0)
-    mins = np.nanmin(norm_rgb_values, axis=0)
-    return (norm_rgb_values - mins) / (maxes - mins)
+
+    # Clip the values to the calculated percentiles
+    clipped_rgb_values = np.clip(rgb_values, percentiles[0], percentiles[1])
+
+    # Normalize the clipped values to the range [0, 1]
+    norm_rgb_values = (clipped_rgb_values - percentiles[0]) / (
+        percentiles[1] - percentiles[0]
+    )
+
+    return norm_rgb_values
 
 
 def plot_spline_fits(
