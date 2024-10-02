@@ -156,7 +156,7 @@ class MLDataPipe:
                 train_val_inds = self.X_train.index.intersection(
                     self.validation_data.index
                 )
-                remaining_inds = self.X_train.index.difference(train_val_inds)
+                remaining_inds = fitted_spectra.index.difference(train_val_inds)
                 self.labels = pd.concat(
                     [
                         self.labels.loc[train_val_inds],
