@@ -1048,7 +1048,7 @@ def fill_clumps_with_mean(df):
             row.notna() != row.notna().shift()
         ).cumsum()  # Groups contiguous clumps
         # Group by clump ID and replace NaNs in each clump with the clump mean
-        return row.groupby(clump_id).transform(lambda g: g.fillna(g.mean()))
+        return row.groupby(clump_id).transform(lambda g: g.mean())
 
     # Apply the function row-wise using apply() with axis=1
     df_filled = df_filled.apply(fill_row_clumps, axis=1)
