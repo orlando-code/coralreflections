@@ -1080,6 +1080,7 @@ def visualise_satellite_from_prism(
 ) -> pd.DataFrame:
     interped_prism = interp_df(prism_spectra)
     band_vals_df = calculate_band_values(response_fns, bois, interped_prism)
+    # lim_bands = response_fns.index.intersection(interped_prism.columns)
     continuous_response_df = interped_prism * band_vals_df
     return create_emulated_df(continuous_response_df)
 
@@ -1088,10 +1089,7 @@ def calculate_band_values(
     response_fns: pd.DataFrame, bois: list[str], interped_prism: pd.DataFrame
 ) -> pd.DataFrame:
     band_headers = [col for b in bois for col in response_fns.columns if b in col]
-    lim_bands = response_fns.index[
-        (response_fns.index >= min(interped_prism.columns))
-        & (response_fns.index <= max(interped_prism.columns))
-    ]
+    lim_bands = response_fns.index.intersection(interped_prism.columns)
     band_vals_df = response_fns[band_headers].loc[lim_bands]
     band_vals_df.replace(
         0, np.nan, inplace=True
