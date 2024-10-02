@@ -27,7 +27,7 @@ from scipy import stats
 from scipy.optimize import minimize, Bounds
 
 # custom
-from reflectance import file_ops
+from reflectance import file_ops, plotting
 
 # GLOBALS
 NIR_WAVELENGTHS = [750, 1100]
@@ -1078,7 +1078,7 @@ def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
 def visualise_satellite_from_prism(
     prism_spectra: pd.DataFrame, response_fns: pd.DataFrame, bois: list[str]
 ) -> pd.DataFrame:
-    interped_prism = spectrum_utils.interp_df(prism_spectra)
+    interped_prism = interp_df(prism_spectra)
     band_vals_df = calculate_band_values(response_fns, bois, interped_prism)
     continuous_response_df = interped_prism * band_vals_df
     return create_emulated_df(continuous_response_df)
@@ -1102,7 +1102,7 @@ def calculate_band_values(
 
 
 def create_emulated_df(continuous_response_df: pd.DataFrame) -> pd.DataFrame:
-    df_filled = spectrum_utils.fill_clumps_with_mean(continuous_response_df)
+    df_filled = fill_clumps_with_mean(continuous_response_df)
     emulated_df = pd.DataFrame(index=continuous_response_df.index)
     emulated_df["B4"] = df_filled[round(plotting.SpectralColour().blue_peak)]
     emulated_df["B3"] = df_filled[round(plotting.SpectralColour().green_peak)]
