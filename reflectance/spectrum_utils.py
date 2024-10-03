@@ -279,33 +279,14 @@ def spread_simulate_spectra(
         f"Mismatch between number of endmembers ({endmember_array.shape[0]}) "
         f"and number of Rb values ({len(Rb_vals)})"
     )
-    weibull_min_vals = {
-        "c": 1.5341393039558309,
-        "loc": 0.28062690149136393,
-        "scale": 5.723423318320629,
-    }
-    weibull_pdf = stats.weibull_min.pdf(
-        np.linspace(min(depth_lims), max(depth_lims), num=1000), **weibull_min_vals
-    )
+
+    H_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "H_pdf.npy")
+    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "k_pdf.npy")
+    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_pdf.npy")
 
     depths = np.random.choice(
-        np.linspace(*depth_lims, 1000), size=N, p=weibull_pdf / np.sum(weibull_pdf)
+        np.linspace(*depth_lims, 1000), size=N, p=H_pdf / np.sum(H_pdf)
     )
-
-    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "K_sampling.npy")
-    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_sampling.npy")
-    # Ks = stats.truncnorm(
-    #     (k_lims[0] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
-    #     (k_lims[1] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
-    #     loc=np.mean(k_lims),
-    #     scale=(k_lims[1] - k_lims[0]) / (2 * 1.96),
-    # ).rvs(N)
-    # bbs = stats.truncnorm(
-    #     (bb_lims[0] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
-    #     (bb_lims[1] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
-    #     loc=np.mean(bb_lims),
-    #     scale=(bb_lims[1] - bb_lims[0]) / (2 * 1.96),
-    # ).rvs(N)
 
     bbs = np.random.choice(
         np.linspace(*bb_lims, 1000), size=N, p=bb_pdf / np.sum(bb_pdf)
@@ -316,7 +297,7 @@ def spread_simulate_spectra(
 
     spread_sim_spectra = np.zeros((N, len(AOP_args[0])))
 
-    for i in tqdm(range(N), desc="Generating simulated spectra"):
+    for i in tqdm(range(N), desc="Generating simulated spectra", leave=False):
         sim = sub_surface_reflectance_Rb(
             wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
         )
