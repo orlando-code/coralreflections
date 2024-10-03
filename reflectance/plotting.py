@@ -1,6 +1,7 @@
 # general
 import numpy as np
 import pandas as pd
+import warnings
 
 # fitting
 from scipy.interpolate import UnivariateSpline
@@ -82,9 +83,11 @@ def generate_spectra_color(
     green_mask = (wvs > green_wvs[0]) & (wvs < green_wvs[1])
     blue_mask = (wvs > blue_wvs[0]) & (wvs < blue_wvs[1])
 
-    red_vals = np.nanmean(spectra[:, red_mask], axis=1)
-    green_vals = np.nanmean(spectra[:, green_mask], axis=1)
-    blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        red_vals = np.nanmean(spectra[:, red_mask], axis=1)
+        green_vals = np.nanmean(spectra[:, green_mask], axis=1)
+        blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
     rgb_values = np.vstack((red_vals, green_vals, blue_vals)).T
 
     return visualise_spectral_colours(rgb_values, vis_percentiles)
@@ -354,10 +357,17 @@ def plot_single_fit(
     # generate colour as a sum of the components
     color_dict = {c: plt.cm.tab20(i) for i, c in enumerate(endmember_cats)}
     y = np.zeros(endmember_contribution.shape[1])
-    for label, endmember in zip(endmember_cats, endmember_contribution):
-        ynew = y + endmember
+    # for label, endmember in zip(endmember_cats, endmember_contribution):
+    for i, (key, endmember) in enumerate(endmember_contribution.iterrows()):
+        ynew = np.array(y + np.array(endmember, dtype=np.float32))
         axs[1].fill_between(
-            wvs, y, ynew, label=label, lw=0, color=color_dict[label], alpha=0.5
+            wvs,
+            y,
+            ynew,
+            # label=endmember_cats[i],
+            # lw=0,
+            # color=color_dict[endmember_cats[i]],
+            # alpha=0.5,
         )
         y = ynew
 
@@ -369,10 +379,10 @@ def plot_single_fit(
         )
     )
     max_r_ax = axs[0].get_ylim()[1]
-    axs[1].set_ylim(
-        bottom=np.min(endmember_contribution),
-        top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
-    )  # surely endmember contribution is always less than total reflectance?
+    # axs[1].set_ylim(
+    #     bottom=np.min(endmember_contribution),
+    #     top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
+    # )  # surely endmember contribution is always less than total reflectance?
     axs[1].legend(bbox_to_anchor=(1, 1), fontsize=8)
     axs[1].set_xlabel("Wavelength (nm)")
 
