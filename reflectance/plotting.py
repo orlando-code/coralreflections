@@ -472,7 +472,7 @@ def plot_regression_axis(
     metadata: pd.DataFrame = None,
     color_by: str = "Depth",
 ):
-
+    max_val = max(np.max(test_data), np.max(pred_data))
     if metadata is not None:
         color_map = plt.cm.get_cmap("viridis_r" if color_by == "Depth" else "tab20")
         if color_by == "Locale":
@@ -541,19 +541,20 @@ def plot_regression_axis(
     ax.axis("square")
     ax.set_xticks(np.arange(0, 1.1, 0.5))
     ax.set_yticks(np.arange(0, 1.1, 0.5))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    ax.set_xlim(0, max_val)
+    ax.set_ylim(0, max_val)
     ax.tick_params(axis="both", which="major", labelsize=6)
     ax.grid(True, which="both", ls="-", alpha=0.3)
-    ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
+    ax.plot([0, max_val], [0, max_val], color="k", ls="--", alpha=0.5)
 
     if np.sum(pred_data > 0.001):
-        xs = np.linspace(0, 1, 100)
+        xs = np.linspace(0, max_val, 100)
         try:
-            p = np.polyfit(test_data, pred_data, 1)
+            p = np.polyfit(test_data.squeeze(), pred_data, 1)
             y_est = np.polyval(p, xs)
             ax.plot(xs, y_est, color="r", ls=":", alpha=0.8)
-            y_err = test_data.std() * np.sqrt(
+            # if test_data.shape
+            y_err = test_data.squeeze().std() * np.sqrt(
                 1 / len(xs) + (xs - xs.mean()) ** 2 / np.sum((xs - xs.mean()) ** 2)
             )
             ax.fill_between(xs, y_est - y_err, y_est + y_err, alpha=0.2)
