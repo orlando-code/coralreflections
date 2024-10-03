@@ -98,7 +98,6 @@ class SimulateSpectra(GenerateEndmembers):
     ):
         self.cfg = cfg
         self.gcfg = gcfg
-        # self.sim_params = self.cfg.simulation
 
     def spread_spectra(self):
         self.raw_spectra, self.spectra_metadata = (
