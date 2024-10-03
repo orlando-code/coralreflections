@@ -510,19 +510,22 @@ def plot_regression_axis(
             cbar.set_label("Depth", fontsize=8)
             cbar.ax.tick_params(labelsize=6)
 
-        # plot error bars
-        ax.errorbar(
-            test_data,
-            pred_data,
-            # yerr=metadata["std_dev"].values,
-            yerr=metadata[
-                metadata.columns[[labels.columns[0] in col for col in metadata.columns]]
-            ].values.squeeze(),
-            fmt="none",
-            alpha=0.01,
-            color="k",
-            zorder=-10,
-        )
+        if "*_std_dev" in metadata.columns:  # if std provided
+            # plot error bars
+            ax.errorbar(
+                test_data,
+                pred_data,
+                # yerr=metadata["std_dev"].values,
+                yerr=metadata[
+                    metadata.columns[
+                        [labels.columns[0] in col for col in metadata.columns]
+                    ]
+                ].values.squeeze(),
+                fmt="none",
+                alpha=0.01,
+                color="k",
+                zorder=-10,
+            )
     else:
         scatter = ax.scatter(test_data, pred_data, s=5, alpha=0.3)
 
