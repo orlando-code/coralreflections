@@ -69,6 +69,18 @@ class MLDataPipe:
         fitted_spectra.columns = fitted_spectra.columns.astype(float)
         return fitted_spectra
 
+    def load_simulation_spectra(self):
+        #     self.spectra = optimisation_pipeline.SimulateSpectra(
+        #         self.cfg, self.gcfg
+        #     ).generate_simulated_spectra()
+        # loading from file for now
+        import pickle
+
+        self.spectra = pickle.load(
+            open(file_ops.TMP_DIR_FP / "sims_df.pkl", "rb")
+        ).iloc[:, 4:]
+        self.labels = pickle.load(open(file_ops.TMP_DIR_FP / "labels_df.pkl", "rb"))
+
     def normalise_data(self):
         scaler = spectrum_utils.instantiate_scaler(self.scaler_type)
         self.X_train = pd.DataFrame(
@@ -107,25 +119,30 @@ class MLDataPipe:
         )
 
     def generate_endmember_labels(self):
-        # process to correct class
-        self.validation_data = spectrum_utils.map_validation(
-            self.validation_data, self.gcfg["endmember_map"]
-        )
+        match self.data_source:
+            # if not simulation
+            case "prism" | "prism_fits" | "fits":
+                # process to correct class
+                self.validation_data = spectrum_utils.map_validation(
+                    self.validation_data, self.gcfg["endmember_map"]
+                )
 
-        endmember_schema_map = self.gcfg["endmember_schema"][
-            self.endmember_class_schema
-        ]
-        grouped_val_data = pd.DataFrame()
-        # group validation data by endmember categories in endmember_schema_map
-        for (
-            endmember_dimensionality_reduction,
-            validation_fields,
-        ) in endmember_schema_map.items():
-            # fill in validation data with sum of all fields in the category
-            grouped_val_data[endmember_dimensionality_reduction] = self.validation_data[
-                validation_fields
-            ].sum(axis=1)
-        self.labels = grouped_val_data
+                endmember_schema_map = self.gcfg["endmember_schema"][
+                    self.endmember_class_schema
+                ]
+                grouped_val_data = pd.DataFrame()
+                # group validation data by endmember categories in endmember_schema_map
+                for (
+                    endmember_dimensionality_reduction,
+                    validation_fields,
+                ) in endmember_schema_map.items():
+                    # fill in validation data with sum of all fields in the category
+                    grouped_val_data[endmember_dimensionality_reduction] = (
+                        self.validation_data[validation_fields].sum(axis=1)
+                    )
+                self.labels = grouped_val_data
+            case "simulation":
+                pass
 
     def generate_depth_labels(self):
         self.labels = pd.DataFrame(
@@ -189,6 +206,8 @@ class MLDataPipe:
                 self.load_prism_spectra()
             case "fits":
                 self.spectra = self.load_fitted_spectra()
+            case "simulation":
+                self.load_simulation_spectra()
 
         match self.target:
             case "endmember":
@@ -293,6 +312,7 @@ class sklModels:
             param_distributions=self.grid,
             n_iter=self.n_iter_search,
             n_jobs=self.n_jobs,
+            verbose=2,
         )
 
         start = time()
