@@ -264,7 +264,7 @@ class OptPipe:
         )
 
         # if self.exec_kwargs["tqdm"]:
-        fitted_params = Parallel(n_jobs=164)(
+        fitted_params = Parallel(n_jobs=84)(
             delayed(partial_wrapper)(index)
             for index in tqdm(self.spectra.index, miniters=10, desc="Fitting spectra")
         )
@@ -294,7 +294,7 @@ class OptPipe:
             self.error_metrics = spectrum_utils.calculate_metrics(
                 self.spectra, self.fitted_spectra
             )
-        except ValueError:   # unable to fit spectra
+        except ValueError:  # unable to fit spectra
             self.error_metrics = None
 
     def generate_fit_results(self):
@@ -505,37 +505,37 @@ class OptPipe:
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
         print("\n")
-        for step_name, step_method in pipeline_steps:
-            # print(step_name)
-            step_method()
-            # profile_step(step_name, step_method)
-
-        try:
-            # generate results (these steps not guarded by error catcher intentionally)
-            self.generate_results_summary()
-            self.generate_fit_results()
-        except:
-            pass
         # for step_name, step_method in pipeline_steps:
-        #     try:
-        #         step_method()
-        #         # profile_step(step_name, step_method)
-        #     except Exception as e:
-        #         print(
-        #             "e:", e
-        #         )  # useful for debugging since logging otherwise hides until end
-        #         print(
-        #             "step_name", step_name
-        #         )  # useful for debugging since logging otherwise hides until end
-        #         self.e = e
-        #         self.e_step = step_name
+        #     # print(step_name)
+        #     step_method()
+        #     # profile_step(step_name, step_method)
 
         # try:
         #     # generate results (these steps not guarded by error catcher intentionally)
         #     self.generate_results_summary()
         #     self.generate_fit_results()
-        # except Exception as e:
-        #     print("e", e)
+        # except:
+        #     pass
+        for step_name, step_method in pipeline_steps:
+            try:
+                step_method()
+                # profile_step(step_name, step_method)
+            except Exception as e:
+                print(
+                    "e:", e
+                )  # useful for debugging since logging otherwise hides until end
+                print(
+                    "step_name", step_name
+                )  # useful for debugging since logging otherwise hides until end
+                self.e = e
+                self.e_step = step_name
+
+        try:
+            # generate results (these steps not guarded by error catcher intentionally)
+            self.generate_results_summary()
+            self.generate_fit_results()
+        except Exception as e:
+            print("e", e)
         print(self.cfg)
 
         # return self.fit_results
@@ -554,11 +554,19 @@ def run_pipeline(glob_cfg: dict, run_cfgs: dict):
         opt_pipe.run()
 
 
+def load_search_space_cfgs(
+    search_space_fp: Path = file_ops.CONFIG_DIR_FP / "search_space.yaml",
+):
+    search_space = file_ops.read_yaml(search_space_fp)
+    return file_ops.generate_config_dicts(search_space)
+
+
 # optionally run as script
 if __name__ == "__main__":
     # load config_dict
     glob_cfg = file_ops.read_yaml(file_ops.CONFIG_DIR_FP / "glob_cfg.yaml")
-    run_cfgs = file_ops.read_yaml(file_ops.CONFIG_DIR_FP / "run_cfgs.yaml")
+    # run_cfgs = file_ops.read_yaml(file_ops.CONFIG_DIR_FP / "run_cfgs.yaml")   # TODO: pass option as argument
+    run_cfgs = load_search_space_cfgs()
     run_pipeline(glob_cfg, run_cfgs)
 
 
