@@ -3,11 +3,17 @@ import yaml
 from pathlib import Path
 from itertools import product
 from dataclasses import dataclass
+import numpy as np
 
 # profiling
 import cProfile
 import pstats
 import io
+
+# spatial
+import xarray as xa
+from pyproj import Transformer
+
 
 # define immutable path structure
 BASE_DIR_FP = Path(__file__).resolve().parent.parent
@@ -18,6 +24,8 @@ DATA_DIR_FP = BASE_DIR_FP / "data"
 RESULTS_DIR_FP = BASE_DIR_FP / "results"
 TMP_DIR_FP = BASE_DIR_FP / "tmp"
 CONFIG_DIR_FP = BASE_DIR_FP / "configs"
+
+KANEOHE_HS_FP = TMP_DIR_FP / "kaneohe_hs_masked.nc"
 
 
 @dataclass
@@ -272,8 +280,9 @@ def process_grd_dataset(
     new_ds.where(new_ds.apply(np.isfinite)).fillna(np.nan)
     # rioxarray formatting
     new_ds.rio.write_crs(dst_crs, inplace=True)
-    new_ds.rio.set_spatial_dims("lon", "lat", inplace=True)
     # replace inf with nan
+    new_ds = new_ds.where(new_ds.apply(np.isfinite)).fillna(np.nan)
+    new_ds.rio.set_spatial_dims("lon", "lat", inplace=True)
     return new_ds
 
 
