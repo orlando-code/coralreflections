@@ -14,6 +14,10 @@ from sklearn.model_selection import RandomizedSearchCV
 from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.neural_network import MLPRegressor
+from sklearn.preprocessing import MinMaxScaler
+
+# spatial
+import xarray as xa
 
 # custom
 from reflectance import spectrum_utils, file_ops
@@ -334,3 +338,61 @@ class sklModels:
         model.fit(X_train, y_train)
         y_pred = model.predict(X_test)
         print("R2 score:", r2_score(y_test, y_pred))
+
+
+def infer_on_spatial(
+    trained_model, spectra_xa: xa.Dataset, prediction_classes: list[str]
+) -> xa.Dataset:
+    spectra_df = spectral_xa_to_processed_spectral_df(spectra_xa)
+    no_nans_spectra_df_scaled = process_df_for_inference(spectra_df)
+    # infer on dataframe
+    predictions = trained_model.predict(no_nans_spectra_df_scaled)
+    # reassamble dataframe
+    predictions = pd.DataFrame(
+        predictions, columns=prediction_classes, index=no_nans_spectra_df_scaled.index
+    )
+    full_index = pd.RangeIndex(
+        start=spectra_df.index.min(), stop=spectra_df.index.max() + 1
+    )
+    return append_inferred_values_to_xa(predictions, full_index, spectra_xa)
+
+
+def spectral_xa_to_processed_spectral_df(
+    spectra_xa: xa.Dataset, sensor_range: tuple[float] = None
+) -> pd.DataFrame:
+    spectra_df = spectra_xa.values.reshape(spectra_xa.shape[0], -1)
+    wvs = spectra_xa.coords["band"].values
+    return spectrum_utils.preprocess_prism_spectra(
+        pd.DataFrame(spectra_df.T, columns=wvs), sensor_range=sensor_range
+    )
+
+
+def process_df_for_inference(spectra_df: pd.DataFrame) -> pd.DataFrame:
+    no_nans_spectra_df = spectra_df.dropna()
+    scaler = MinMaxScaler()
+    scaler = scaler.fit(no_nans_spectra_df)
+    return pd.DataFrame(
+        scaler.transform(no_nans_spectra_df),
+        index=no_nans_spectra_df.index,
+        columns=no_nans_spectra_df.columns,
+    )
+
+
+def append_inferred_values_to_xa(
+    inferred_values: pd.DataFrame, full_index: pd.Index, spectra_xa: xa.Dataset
+) -> xa.Dataset:
+    filled_prediction_vals = inferred_values.reindex(full_index)
+
+    # cast to dataset and return
+    prediction_array = filled_prediction_vals.values.reshape(
+        spectra_xa.shape[1], spectra_xa.shape[2], len(inferred_values.columns)
+    )
+
+    if isinstance(spectra_xa, xa.DataArray):
+        spectra_xa.name = "spectra"
+        spectra_xa = spectra_xa.to_dataset()
+
+    for i, class_name in enumerate(inferred_values.columns):
+        spectra_xa[class_name + "_pred"] = (["lat", "lon"], prediction_array[:, :, i])
+
+    return spectra_xa
