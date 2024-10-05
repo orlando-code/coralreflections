@@ -40,6 +40,7 @@ endmember_schema:
       - algae_fleshy_red
       - algae_turf
       - seagrass
+      - algae_crustose_coralline
     coral:
       - coral_blue
       - coral_brown

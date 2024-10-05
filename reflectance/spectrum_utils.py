@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 from tqdm.auto import tqdm
+from scipy.interpolate import interp1d
 
 # from dataclasses import asdict
 from itertools import product
@@ -20,14 +21,17 @@ from sklearn.preprocessing import (
 )
 from sklearn.metrics import r2_score, root_mean_squared_error, mean_absolute_error
 from scipy.spatial.distance import mahalanobis
+from scipy import stats
 
 # fitting
 from scipy.optimize import minimize, Bounds
 
-# from scipy.interpolate import UnivariateSpline
-
 # custom
-from reflectance import file_ops
+from reflectance import file_ops, plotting
+
+# GLOBALS
+NIR_WAVELENGTHS = [750, 1100]
+SENSOR_RANGE = [450, 690]
 
 
 """LOADING"""
@@ -88,8 +92,21 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     return AOP_model
 
 
+def process_aop_model(aop_model, sensor_range):
+    aop_sub = aop_model.loc[min(sensor_range) : max(sensor_range)]
+    aop_args = (
+        aop_sub.bb_m.values,
+        aop_sub.bb_c.values,
+        aop_sub.Kd_m.values,
+        aop_sub.Kd_c.values,
+    )
+    return aop_args
+
+
 # PREPROCESSING
-def deglint_spectra(spectra, nir_wavelengths: list[float] = None) -> pd.DataFrame:
+def deglint_spectra(
+    spectra, nir_wavelengths: list[float] = NIR_WAVELENGTHS
+) -> pd.DataFrame:
     glint_inds = (spectra.columns > min(nir_wavelengths)) & (
         spectra.columns < max(nir_wavelengths)
     )
@@ -105,14 +122,20 @@ def retrieve_subsurface_reflectance(
     return spectra / (constant + coeff * spectra)
 
 
-def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
+def crop_spectra_to_range(
+    spectra: pd.DataFrame, wv_range: tuple = SENSOR_RANGE
+) -> pd.DataFrame:
     """Crop spectra to specified wavelength range"""
     return spectra.loc[
         :, (spectra.columns >= min(wv_range)) & (spectra.columns <= max(wv_range))
     ]
 
 
-def preprocess_prism_spectra(raw_spectra, nir_wavelengths, sensor_range):
+def preprocess_prism_spectra(
+    raw_spectra,
+    nir_wavelengths: tuple = NIR_WAVELENGTHS,
+    sensor_range: tuple = SENSOR_RANGE,
+):
     """
     Preprocess the raw prism spectra to remove the NIR wavelengths and sensor range
 
@@ -188,7 +211,7 @@ def simulate_spectra(
     - wvs (np.array): array of wavelengths over which spectrum is defined
     - AOP_args: (tuple[np.array, np.array, np.array, np.array]): tuple of backscatter and attenuation coefficients as function of wavelength
     - Rb_vals (tuple): Rb values for each endmember
-    - N (int): number of samples to generate
+    - N (int): number of samples to generate for each set of parameters (only random noise varies)
     - n_depths (int): number of depths to generate
     - depth_lims (tuple): min and max depth values
     - n_ks (int): number of K values to generate
@@ -229,10 +252,14 @@ def simulate_spectra(
                                 depth,
                                 AOP_args,
                                 *Rb_vals,
-                            )  # TODO: AOP_args
+                            )
                             sim += np.random.normal(0, nl, len(sim))
                             sim_spectra[sample, d, k, b, n] = sim
                             pbar.update(1)
+    sim_spectra = pd.DataFrame(
+        sim_spectra.reshape(-1, sim_spectra.shape[-1]),
+        columns=wvs,
+    )
     return sim_spectra, metadata
 
 
@@ -243,10 +270,9 @@ def spread_simulate_spectra(
     Rb_vals: tuple[float],
     N: int = 10,
     noise_level=0,
-    # noise_lims: tuple[float, float] = (0, 1e-3),
     depth_lims: tuple[float, float] = (0, 10),
-    k_lims: tuple[float, float] = (0.1, 0.3),
-    bb_lims: tuple[float, float] = (0.01, 0.03),
+    k_lims: tuple[float, float] = (0.01688, 3.17231),
+    bb_lims: tuple[float, float] = (0, 0.41123),
 ) -> np.array:
     # check that endmember and Rb_vals dimensions match
     assert endmember_array.shape[0] == len(Rb_vals), (
@@ -254,34 +280,27 @@ def spread_simulate_spectra(
         f"and number of Rb values ({len(Rb_vals)})"
     )
 
-    depths = np.linspace(*depth_lims, N)
-    Ks = np.linspace(*k_lims, N)
-    bbs = np.linspace(*bb_lims, N)
-    # noise_levels = np.linspace(*noise_lims, N)
+    H_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "H_pdf.npy")
+    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "k_pdf.npy")
+    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_pdf.npy")
 
+    depths = np.random.choice(
+        np.linspace(*depth_lims, 1000), size=N, p=H_pdf / np.sum(H_pdf)
+    )
+
+    bbs = np.random.choice(
+        np.linspace(*bb_lims, 1000), size=N, p=bb_pdf / np.sum(bb_pdf)
+    )
+    Ks = np.random.choice(np.linspace(*k_lims, 1000), size=N, p=Ks_pdf / np.sum(Ks_pdf))
     # store in metadata
     metadata = pd.DataFrame({"depth": depths, "K": Ks, "bb": bbs, "noise": noise_level})
-    # metadata = pd.DataFrame(
-    #     {
-    #         "depth": np.tile(depths, n_noise_levels),
-    #         "K": np.tile(Ks, n_noise_levels),
-    #         "bb": np.tile(bbs, n_noise_levels),
-    #         # "noise": np.repeat(noise_levels, n_noise_levels),
-    #     }
-    # )
 
-    # initialise arrays to store results
-    # spread_sim_spectra = np.zeros(
-    #     (N, n_noise_levels, len(AOP_args[0]))
-    # )  # TODO: slightly janky
-    spread_sim_spectra = np.zeros((N, len(AOP_args[0])))  # TODO: slightly janky
+    spread_sim_spectra = np.zeros((N, len(AOP_args[0])))
 
-    for i in tqdm(range(N), desc="Generating simulated spectra"):
-        # for n, nl in enumerate(noise_levels):
+    for i in tqdm(range(N), desc="Generating simulated spectra", leave=False):
         sim = sub_surface_reflectance_Rb(
             wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
         )
-        # sim = sub_surface_reflectance_Rb(wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, Rb0, Rb1, Rb2, Rb3)
         sim += np.random.normal(0, noise_level, len(sim))
         spread_sim_spectra[i] = sim
 
@@ -815,7 +834,7 @@ def spectral_angle_correlation_matrix(spectra: np.ndarray) -> np.ndarray:
 
 
 def calc_rolling_similarity(
-    wvs, spectra, kernel_width, kernel_displacement, similarity_fn
+    wvs, spectra: np.ndarray, kernel_width, kernel_displacement, similarity_fn
 ):
     """
     Calculate the rolling spectral angle between a spectrum and a set of end members.
@@ -843,19 +862,32 @@ def calc_rolling_similarity(
 
     # calculate rolling spectral angles
     mean_corrs = []
+    std_corrs = []
     for wv_pair in wv_pairs:
         pair_ids = (wvs > min(wv_pair)) & (wvs < max(wv_pair))
-        # mean_angle, _ = similarity_fn(spectra[:, ~pair_ids])
-        mean_angle = similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][1])
-        mean_corrs.append(mean_angle)
+        similarities = [
+            similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][j])
+            for i, j in zip(range(1, spectra.shape[0]), range(1, spectra.shape[0]))
+        ]
+        # similarities = [
+        #     similarity_fn(spectra[:, pair_ids][i], spectra[:, pair_ids][j])
+        #     for i, j in zip(range(1, spectra.shape[0]), range(1, spectra.shape[0]))
+        # ]
+        mean_similarities = np.mean(similarities)
+        std_similarities = np.std(similarities)
+        # else:
 
-    return wv_pairs, mean_corrs
+        #     mean_angle = similarity_fn(spectra[:, pair_ids][0], spectra[:, pair_ids][1])
+        mean_corrs.append(mean_similarities)
+        std_corrs.append(std_similarities)
+
+    return wv_pairs, (np.array(mean_corrs), np.array(std_corrs))
 
 
 def instantiate_scaler(scaler_type: str):
     """Instantiate scaler"""
     match scaler_type:
-        case "zscore":
+        case "zscore" | "standard":
             return StandardScaler()
         case "minmax":
             return MinMaxScaler()
@@ -875,6 +907,17 @@ def normalise_spectra(spectra: pd.DataFrame, scaler_type: str) -> pd.DataFrame:
 
 
 # END MEMBER CHARACTERISATION
+def map_validation(validation_df: pd.DataFrame, endmember_map: dict) -> pd.DataFrame:
+    """Map validation data to end members."""
+    validation_df_mapped = pd.DataFrame(index=validation_df.index)
+    for endmember_dimensionality_reduction, validation_fields in endmember_map.items():
+        # fill in validation data with sum of all fields in the category
+        validation_df_mapped.loc[:, endmember_dimensionality_reduction] = (
+            validation_df.loc[:, validation_fields].sum(axis=1)
+        )
+    return validation_df_mapped
+
+
 def mean_endmembers(
     spectral_library_df: pd.DataFrame, classes: list[str] = None
 ) -> pd.DataFrame:
@@ -975,6 +1018,45 @@ def generate_config_dicts(nested_dict):
 
 
 # GENERAL
+def fill_clumps_with_mean(df):
+    """
+    Fills NaN-separated clumps in each row of the DataFrame with the mean value of the clump.
+
+    Parameters:
+    df: pd.DataFrame - Input DataFrame with spectra where clumps of values are separated by NaNs.
+
+    Returns:
+    df_filled: pd.DataFrame - DataFrame with clumps filled by the mean of the respective clump.
+    """
+    df_filled = df.copy()  # Create a copy to avoid modifying the original
+
+    # Function to fill each row's clumps
+    def fill_row_clumps(row):
+        # Identify clumps by checking where non-NaN values change
+        clump_id = (
+            row.notna() != row.notna().shift()
+        ).cumsum()  # Groups contiguous clumps
+        # Group by clump ID and replace NaNs in each clump with the clump mean
+        return row.groupby(clump_id).transform(lambda g: g.mean())
+
+    # Apply the function row-wise using apply() with axis=1
+    df_filled = df_filled.apply(fill_row_clumps, axis=1)
+
+    return df_filled
+
+
+def interp_df(df):
+    new_wvs = np.arange(round(min(df.columns)), round(max(df.columns)), 1)
+    interped_list = []
+
+    for idx, row in df.iterrows():
+        f_interp = interp1d(
+            df.columns, row.values, axis=0, bounds_error=False, fill_value="extrapolate"
+        )
+        interped_list.append(f_interp(new_wvs))
+
+    interped_df = pd.DataFrame(interped_list, index=df.index, columns=new_wvs)
+    return interped_df
 
 
 def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
@@ -982,29 +1064,110 @@ def range_from_centre_and_width(centre: float, width: float) -> tuple[float]:
     return centre - width / 2, centre + width / 2  # TODO: probably unnecessary
 
 
-def rgb_from_hyperspectral(
-    wvs: np.array,
-    values: np.array,
-    red_wvs: tuple[float],
-    green_wvs: tuple[float],
-    blue_wvs: tuple[float],
+def visualise_satellite_from_prism(
+    prism_spectra: pd.DataFrame, response_fns: pd.DataFrame, bois: list[str]
 ) -> pd.DataFrame:
-    """Generate RGB image from hyperspectral data using specified wavelengths."""
-    red_val = values[(wvs > red_wvs[0]) & (wvs < red_wvs[1])].mean(axis=0)
-    green_val = values[(wvs > green_wvs[0]) & (wvs < green_wvs[1])].mean(axis=0)
-    blue_val = values[(wvs > blue_wvs[0]) & (wvs < blue_wvs[1])].mean(axis=0)
+    interped_prism = interp_df(prism_spectra)
+    band_vals_df = calculate_band_values(response_fns, bois, interped_prism)
+    # lim_bands = response_fns.index.intersection(interped_prism.columns)
+    continuous_response_df = interped_prism * band_vals_df
+    return create_emulated_df(continuous_response_df)
 
-    # Normalize colors to the range [0, 1]
-    # max_val = max(red_val, green_val, blue_val)
-    max_val = 2000
-    if max_val > 0:
-        red_val /= max_val
-        green_val /= max_val
-        blue_val /= max_val
-    return red_val, green_val, blue_val
+
+def calculate_band_values(
+    response_fns: pd.DataFrame, bois: list[str], interped_prism: pd.DataFrame
+) -> pd.DataFrame:
+    band_headers = [col for b in bois for col in response_fns.columns if b in col]
+    lim_bands = response_fns.index.intersection(interped_prism.columns)
+    band_vals_df = response_fns[band_headers].loc[lim_bands]
+    band_vals_df.replace(
+        0, np.nan, inplace=True
+    )  # Replace 0 with NaN to ignore them in mean calculation
+    return band_vals_df.mean(
+        axis=1, skipna=True
+    )  # Calculate row-wise mean, ignoring NaN values
+
+
+def create_emulated_df(continuous_response_df: pd.DataFrame) -> pd.DataFrame:
+    df_filled = fill_clumps_with_mean(continuous_response_df)
+    emulated_df = pd.DataFrame(index=continuous_response_df.index)
+    emulated_df["B4"] = df_filled[round(plotting.SpectralColour().blue_peak)]
+    emulated_df["B3"] = df_filled[round(plotting.SpectralColour().green_peak)]
+    emulated_df["B2"] = df_filled[round(plotting.SpectralColour().red_peak)]
+    emulated_df["B8A"] = df_filled[round(plotting.SpectralColour().nir_peak)]
+    emulated_df = emulated_df.subtract(emulated_df["B8A"], axis=0).drop("B8A", axis=1)
+    return emulated_df.iloc[:, [2, 1, 0]]
+
+
+def load_s2_response_fns(
+    response_fns_fp: str | Path = file_ops.RESOURCES_DIR_FP
+    / "satellite_response_functions"
+    / "S2-SRF_COPE-GSEG-EOPG-TN-15-0007_3.2.xlsx",
+) -> pd.DataFrame:
+
+    response_fns_S2A = pd.read_excel(
+        response_fns_fp,
+        sheet_name="Spectral Responses (S2A)",
+        header=0,
+        index_col=0,
+    )
+    response_fns_S2B = pd.read_excel(
+        response_fns_fp,
+        sheet_name="Spectral Responses (S2B)",
+        header=0,
+        index_col=0,
+    )
+    # combine the two by averaging (minor technical differences between satellites in the same constellation)
+    return pd.DataFrame(
+        (response_fns_S2A.values + response_fns_S2B.values) / 2,
+        index=response_fns_S2A.index,
+        columns=response_fns_S2A.columns,
+    )
+
+
+def load_planet_response_fns(
+    response_fns_fp: str | Path = file_ops.RESOURCES_DIR_FP
+    / "satellite_response_functions"
+    / "dove_r.csv",
+) -> pd.DataFrame:
+    planet_response_fns = pd.read_csv(planet_response_fns_fp, index_col=0)
+    # planet has loads of small values in between the main peaks: for now, casting to nan   # TODO: improve
+    planet_response_fns[planet_response_fns < 0.01] = np.nan
+    return planet_response_fns
+
+
+def expand_df_with_empty_columns(full_df, subset_df):
+    missing_columns = set(full_df.columns) - set(subset_df.columns)
+    missing_df = pd.DataFrame(0, index=subset_df.index, columns=list(missing_columns))
+    subset_df = pd.concat([subset_df, missing_df], axis=1)
+
+    return subset_df[full_df.columns]
 
 
 # DEPRECATED #
+
+# def rgb_from_hyperspectral(
+#     wvs: np.array,
+#     values: np.array,
+#     red_wvs: tuple[float],
+#     green_wvs: tuple[float],
+#     blue_wvs: tuple[float],
+# ) -> pd.DataFrame:
+#     """Generate RGB image from hyperspectral data using specified wavelengths."""
+#     red_val = values[(wvs > red_wvs[0]) & (wvs < red_wvs[1])].mean(axis=0)
+#     green_val = values[(wvs > green_wvs[0]) & (wvs < green_wvs[1])].mean(axis=0)
+#     blue_val = values[(wvs > blue_wvs[0]) & (wvs < blue_wvs[1])].mean(axis=0)
+
+#     # Normalize colors to the range [0, 1]
+#     # max_val = max(red_val, green_val, blue_val)
+#     max_val = 2000
+#     if max_val > 0:
+#         red_val /= max_val
+#         green_val /= max_val
+#         blue_val /= max_val
+#     return red_val, green_val, blue_val
+
+
 # # been surpassed by function for minimisation
 # def sub_surface_reflectance(wv, bb, K, H, Rb):
 #     sub = AOP_margs,oc[wv]

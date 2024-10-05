@@ -2,8 +2,7 @@
 from tqdm.auto import tqdm
 import pandas as pd
 from pathlib import Path
-
-# import numpy as np
+import xarray as xa
 import logging
 import traceback
 
@@ -89,6 +88,87 @@ class GenerateEndmembers:
         return self.endmembers
 
 
+class SimulateSpectra(GenerateEndmembers):
+
+    def __init__(
+        self,
+        cfg: file_ops.RunOptPipeConfig,
+        gcfg: file_ops.GlobalOptPipeConfig,
+    ):
+        self.cfg = cfg
+        self.gcfg = gcfg
+
+    def spread_spectra(self):
+        self.raw_spectra, self.spectra_metadata = (
+            spectrum_utils.spread_simulate_spectra(
+                wvs=self.wvs,
+                endmember_array=self.endmembers,
+                AOP_args=self.aop_args,
+                Rb_vals=self.cfg.simulation["Rb_vals"],
+                N=self.cfg.simulation["N"],
+                depth_lims=self.cfg.simulation["depth_lims"],
+                k_lims=self.cfg.simulation["k_lims"],
+                bb_lims=self.cfg.simulation["bb_lims"],
+            )
+        )
+
+    def regular_spectra(self):
+        self.raw_spectra, self.spectra_metadata = spectrum_utils.simulate_spectra(
+            endmember_array=self.endmembers,
+            wvs=self.wvs,
+            AOP_args=self.aop_args,
+            Rb_vals=self.cfg.simulation["Rb_vals"],
+            N=self.cfg.simulation["N"],
+            n_depths=self.cfg.simulation["n_depths"],
+            depth_lims=self.cfg.simulation["depth_lims"],
+            n_ks=self.cfg.simulation["n_ks"],
+            k_lims=self.cfg.simulation["k_lims"],
+            n_bbs=self.cfg.simulation["n_bbs"],
+            bb_lims=self.cfg.simulation["bb_lims"],
+            n_noise_levels=self.cfg.simulation["n_noise_levels"],
+            noise_lims=self.cfg.simulation["noise_lims"],
+        )
+
+    def handle_metadata(self):
+        # concatenate metadata to spectra
+        self.sim_spectra = pd.concat([self.spectra_metadata, self.raw_spectra], axis=1)
+
+    def load_aop_model(self):
+        """Load the AOP model dependent on the specified group"""
+        self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
+        self.aop_args = spectrum_utils.process_aop_model(
+            self.aop_model, self.cfg.sensor_range
+        )
+
+    def generate_simulated_spectra(self):
+        self.load_aop_model()
+        self.wvs = self.aop_model.loc[
+            min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
+        ].index
+
+        self.endmembers = GenerateEndmembers(
+            self.gcfg.endmember_schema[self.cfg.endmember_class_schema],
+            self.cfg.endmember_dimensionality_reduction,
+            self.cfg.endmember_normalisation,
+            self.gcfg.spectral_library_fp,
+        ).generate_endmembers()
+        self.endmembers = spectrum_utils.crop_spectra_to_range(
+            self.endmembers, self.cfg.sensor_range
+        )
+
+        match self.cfg.simulation["type"]:
+            case "spread":
+                self.spread_spectra()
+            case "regular":
+                self.regular_spectra()
+            case _:
+                raise ValueError(
+                    f"Simulation type {self.cfg.simulation['type']} not recognised"
+                )
+        self.handle_metadata()
+        return self.sim_spectra
+
+
 class OptPipe:
     """
     Class to run the optimisation pipeline for a range of parameterisation schema
@@ -104,6 +184,7 @@ class OptPipe:
         self.gcfg = glob_cfg
         self.endmember_map = self.gcfg.endmember_map
         self.cfg = run_cfg
+
         # self.exec_kwargs = exec_kwargs
 
     def preprocess_spectra(self):
@@ -163,14 +244,12 @@ class OptPipe:
                     AOP_args=self.aop_args,
                     Rb_vals=sim_params["Rb_vals"],
                     N=sim_params["N"],
-                    n_noise_levels=sim_params["n_noise_levels"],
                     noise_lims=sim_params["noise_lims"],
                     depth_lims=sim_params["depth_lims"],
                     k_lims=sim_params["k_lims"],
                     bb_lims=sim_params["bb_lims"],
                 )
             elif sim_params["type"] == "regular":
-                sim_params = self.cfg.simulation
                 raw_spectra, spectra_metadata = spectrum_utils.simulate_spectra(
                     endmember_array=self.endmembers,
                     AOP_args=self.aop_args,
@@ -200,21 +279,23 @@ class OptPipe:
             self.get_run_id()
             fits_fp = file_ops.get_f(fits_dir / f"sim_spectra_{self.run_id}.csv")
             sim_spectra.to_csv(fits_fp, index=False)
+        elif self.gcfg.spectra_source == "kaneohe":
+            xa_ds = xa.open_dataset(
+                file_ops.KANEOHE_HS_FP
+            ).spectra  # TODO: make not janky
+            raw_spectra_with_nans = xa_ds.values.reshape(xa_ds.sizes["band"], -1)
+            wvs = xa_ds.coords["band"].values
+            self.raw_spectra = pd.DataFrame(
+                raw_spectra_with_nans.T, columns=wvs
+            ).dropna(axis=0)
         else:
             self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
 
     def load_aop_model(self):
         """Load the AOP model dependent on the specified group"""
         self.aop_model = spectrum_utils.load_aop_model(self.cfg.aop_group_num)
-        # aop_sub = self.aop_model
-        aop_sub = self.aop_model.loc[
-            min(self.cfg.sensor_range) : max(self.cfg.sensor_range)
-        ]
-        self.aop_args = (
-            aop_sub.bb_m.values,
-            aop_sub.bb_c.values,
-            aop_sub.Kd_m.values,
-            aop_sub.Kd_c.values,
+        self.aop_args = spectrum_utils.process_aop_model(
+            self.aop_model, self.cfg.sensor_range
         )
 
     def return_objective_fn(self):
@@ -529,6 +610,18 @@ class OptPipe:
                 )  # useful for debugging since logging otherwise hides until end
                 self.e = e
                 self.e_step = step_name
+            try:
+                step_method()
+                # profile_step(step_name, step_method)
+            except Exception as e:
+                print(
+                    "e:", e
+                )  # useful for debugging since logging otherwise hides until end
+                print(
+                    "step_name", step_name
+                )  # useful for debugging since logging otherwise hides until end
+                self.e = e
+                self.e_step = step_name
 
         try:
             # generate results (these steps not guarded by error catcher intentionally)
@@ -538,7 +631,7 @@ class OptPipe:
             print("e", e)
         print(self.cfg)
 
-        # return self.fit_results
+        return self.fit_results
 
 
 def run_pipeline(glob_cfg: dict, run_cfgs: dict):
