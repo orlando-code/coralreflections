@@ -1,0 +1,83 @@
+processing:
+  endmember_source: ["spectral_library"]
+  aop_group_num: [1, 2, 3]
+  nir_wavelengths: [[750, 1100]]
+  sensor_range: [[450, 690]]
+  endmember_dimensionality_reduction: 
+    - "mean"
+    # - "median"
+    - ["pca", 1]
+    # - ["nmf", 1]
+    # - ["ica", 1]
+    # - ["svd", 1]
+  endmember_normalisation: 
+    - null
+    - "minmax"
+    - "zscore"
+    # - "robust"
+    # - "maxabs"
+  endmember_class_schema: 
+    - "three_endmember"
+    - "inorganic_organic"
+    - "all"
+  spectra_normalisation: 
+    - null
+    - "minmax"
+    - "zscore"
+    # - "robust"
+    # - "maxabs"
+
+simulation:
+  type: ["spread"]
+  N: [100]
+  Rb_vals: [(0, 1)]
+  n_depths: [10]
+  depth_lims: [(0, 10)]
+  n_ks: [10]
+  k_lims: [(0, 0.4)]
+  n_bbs: [10]
+  bb_lims: [(0.01, 0.03)]
+  n_noise_levels: [10]
+  noise_lims: [(0.001, 0)]
+  noise_ind: [0]
+
+fitting:
+  Rb_init: [0.5]
+  endmember_bounds: [[0, 1]]
+  objective_fn: 
+    - "r2"
+    - "spectral_angle"
+    - "spectral_similarity_gradient"
+  bb_bounds: 
+    - (0, 0.41123)
+    - (0, 0.2)
+  Kd_bounds: 
+    - (0.01688, 3.17231)
+    - (0.01688, 1.5)
+  H_bounds: 
+    - (0, 10)
+    # - (0, 20)
+    # - (0, 30)
+    - (0, 40)
+  solver: 
+    - 'L-BFGS-B'
+    - 'CG'
+    # - 'Powell'
+    # - 'CG'
+    # - 'BFGS'
+    # - 'Newton-CG'
+    # - 'L-BFGS-B'
+    # - 'TNC'
+    # - 'COBYLA'
+    # - 'COBYQA'
+    # - 'SLSQP'
+    # - 'trust-constr'
+    # - 'dogleg'
+    # - 'trust-ncg'
+    # - 'trust-exact'
+    # - 'trust-krylov'
+  tol: 
+    # - 1e-3
+    - 1e-6
+    # - 1e-9
+    - 1e-12
