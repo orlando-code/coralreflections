@@ -3,11 +3,17 @@ import yaml
 from pathlib import Path
 from itertools import product
 from dataclasses import dataclass
+import numpy as np
 
 # profiling
 import cProfile
 import pstats
 import io
+
+# spatial
+import xarray as xa
+from pyproj import Transformer
+
 
 # define immutable path structure
 BASE_DIR_FP = Path(__file__).resolve().parent.parent
@@ -18,6 +24,8 @@ DATA_DIR_FP = BASE_DIR_FP / "data"
 RESULTS_DIR_FP = BASE_DIR_FP / "results"
 TMP_DIR_FP = BASE_DIR_FP / "tmp"
 CONFIG_DIR_FP = BASE_DIR_FP / "configs"
+
+KANEOHE_HS_FP = TMP_DIR_FP / "kaneohe_hs_masked.nc"
 
 
 @dataclass
@@ -241,3 +249,44 @@ def profile_step(step_name, step_method):
     ps = pstats.Stats(profiler, stream=s).sort_stats("cumtime")
     ps.print_stats(10)  # Print top 10 slowest functions
     print(f"Profile stats for {step_name}:\n{s.getvalue()}")
+
+
+def process_grd_dataset(
+    ds: xa.Dataset, src_crs: str = "EPSG:XXXXX", dst_crs: str = "EPSG:4326"
+) -> xa.Dataset:
+    x_range = ds.x_range.values
+    y_range = ds.y_range.values
+    spacing = ds.spacing.values
+
+    x_coords = np.arange(min(x_range), max(x_range) + spacing[0], spacing[0])
+    y_coords = np.arange(min(y_range), max(y_range) + spacing[1], spacing[1])[::-1]
+
+    # reproject x, y coordinates to lat/lon (EPSG:4326)
+    transformer = Transformer.from_crs(src_crs, dst_crs, always_xy=True)
+    lon_coords, lat_coords = np.meshgrid(x_coords, y_coords)
+    lon_coords, lat_coords = transformer.transform(lon_coords, lat_coords)
+
+    # reshape z data to match new (lat, lon) grid
+    z_data = ds["z"].values.reshape(len(y_coords), len(x_coords))
+
+    new_ds = xa.Dataset(
+        {"lidar_depth": (["lat", "lon"], z_data)},
+        coords={
+            "lon": (["lon"], lon_coords[0, :]),  # Longitude grid
+            "lat": (["lat"], lat_coords[:, 0]),  # Latitude grid
+        },
+        attrs=ds.attrs,  # Keep original attributes
+    )
+    new_ds.where(new_ds.apply(np.isfinite)).fillna(np.nan)
+    # rioxarray formatting
+    new_ds.rio.write_crs(dst_crs, inplace=True)
+    # replace inf with nan
+    new_ds = new_ds.where(new_ds.apply(np.isfinite)).fillna(np.nan)
+    new_ds.rio.set_spatial_dims("lon", "lat", inplace=True)
+    return new_ds
+
+
+def load_grd_to_xarray(grd_file: str) -> xa.Dataset:
+    # Load the .grd file directly with xarray (assuming NetCDF format)
+    ds = xa.open_dataset(grd_file)
+    return ds

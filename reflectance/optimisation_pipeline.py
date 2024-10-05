@@ -2,8 +2,7 @@
 from tqdm.auto import tqdm
 import pandas as pd
 from pathlib import Path
-
-# import numpy as np
+import xarray as xa
 import logging
 import traceback
 
@@ -98,7 +97,6 @@ class SimulateSpectra(GenerateEndmembers):
     ):
         self.cfg = cfg
         self.gcfg = gcfg
-        # self.sim_params = self.cfg.simulation
 
     def spread_spectra(self):
         self.raw_spectra, self.spectra_metadata = (
@@ -281,6 +279,15 @@ class OptPipe:
             self.get_run_id()
             fits_fp = file_ops.get_f(fits_dir / f"sim_spectra_{self.run_id}.csv")
             sim_spectra.to_csv(fits_fp, index=False)
+        elif self.gcfg.spectra_source == "kaneohe":
+            xa_ds = xa.open_dataset(
+                file_ops.KANEOHE_HS_FP
+            ).spectra  # TODO: make not janky
+            raw_spectra_with_nans = xa_ds.values.reshape(xa_ds.sizes["band"], -1)
+            wvs = xa_ds.coords["band"].values
+            self.raw_spectra = pd.DataFrame(
+                raw_spectra_with_nans.T, columns=wvs
+            ).dropna(axis=0)
         else:
             self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
 

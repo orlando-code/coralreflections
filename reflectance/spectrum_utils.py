@@ -104,7 +104,9 @@ def process_aop_model(aop_model, sensor_range):
 
 
 # PREPROCESSING
-def deglint_spectra(spectra, nir_wavelengths: list[float] = None) -> pd.DataFrame:
+def deglint_spectra(
+    spectra, nir_wavelengths: list[float] = NIR_WAVELENGTHS
+) -> pd.DataFrame:
     glint_inds = (spectra.columns > min(nir_wavelengths)) & (
         spectra.columns < max(nir_wavelengths)
     )
@@ -120,14 +122,20 @@ def retrieve_subsurface_reflectance(
     return spectra / (constant + coeff * spectra)
 
 
-def crop_spectra_to_range(spectra: pd.DataFrame, wv_range: tuple) -> pd.DataFrame:
+def crop_spectra_to_range(
+    spectra: pd.DataFrame, wv_range: tuple = SENSOR_RANGE
+) -> pd.DataFrame:
     """Crop spectra to specified wavelength range"""
     return spectra.loc[
         :, (spectra.columns >= min(wv_range)) & (spectra.columns <= max(wv_range))
     ]
 
 
-def preprocess_prism_spectra(raw_spectra, nir_wavelengths, sensor_range):
+def preprocess_prism_spectra(
+    raw_spectra,
+    nir_wavelengths: tuple = NIR_WAVELENGTHS,
+    sensor_range: tuple = SENSOR_RANGE,
+):
     """
     Preprocess the raw prism spectra to remove the NIR wavelengths and sensor range
 
@@ -271,33 +279,14 @@ def spread_simulate_spectra(
         f"Mismatch between number of endmembers ({endmember_array.shape[0]}) "
         f"and number of Rb values ({len(Rb_vals)})"
     )
-    weibull_min_vals = {
-        "c": 1.5341393039558309,
-        "loc": 0.28062690149136393,
-        "scale": 5.723423318320629,
-    }
-    weibull_pdf = stats.weibull_min.pdf(
-        np.linspace(min(depth_lims), max(depth_lims), num=1000), **weibull_min_vals
-    )
+
+    H_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "H_pdf.npy")
+    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "k_pdf.npy")
+    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_pdf.npy")
 
     depths = np.random.choice(
-        np.linspace(*depth_lims, 1000), size=N, p=weibull_pdf / np.sum(weibull_pdf)
+        np.linspace(*depth_lims, 1000), size=N, p=H_pdf / np.sum(H_pdf)
     )
-
-    Ks_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "K_sampling.npy")
-    bb_pdf = np.load(file_ops.RESOURCES_DIR_FP / "distributions" / "bb_sampling.npy")
-    # Ks = stats.truncnorm(
-    #     (k_lims[0] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
-    #     (k_lims[1] - np.mean(k_lims)) / ((k_lims[1] - k_lims[0]) / (2 * 1.96)),
-    #     loc=np.mean(k_lims),
-    #     scale=(k_lims[1] - k_lims[0]) / (2 * 1.96),
-    # ).rvs(N)
-    # bbs = stats.truncnorm(
-    #     (bb_lims[0] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
-    #     (bb_lims[1] - np.mean(bb_lims)) / ((bb_lims[1] - bb_lims[0]) / (2 * 1.96)),
-    #     loc=np.mean(bb_lims),
-    #     scale=(bb_lims[1] - bb_lims[0]) / (2 * 1.96),
-    # ).rvs(N)
 
     bbs = np.random.choice(
         np.linspace(*bb_lims, 1000), size=N, p=bb_pdf / np.sum(bb_pdf)
@@ -308,7 +297,7 @@ def spread_simulate_spectra(
 
     spread_sim_spectra = np.zeros((N, len(AOP_args[0])))
 
-    for i in tqdm(range(N), desc="Generating simulated spectra"):
+    for i in tqdm(range(N), desc="Generating simulated spectra", leave=False):
         sim = sub_surface_reflectance_Rb(
             wvs, endmember_array, bbs[i], Ks[i], depths[i], AOP_args, *Rb_vals
         )
@@ -1108,6 +1097,51 @@ def create_emulated_df(continuous_response_df: pd.DataFrame) -> pd.DataFrame:
     emulated_df["B8A"] = df_filled[round(plotting.SpectralColour().nir_peak)]
     emulated_df = emulated_df.subtract(emulated_df["B8A"], axis=0).drop("B8A", axis=1)
     return emulated_df.iloc[:, [2, 1, 0]]
+
+
+def load_s2_response_fns(
+    response_fns_fp: str | Path = file_ops.RESOURCES_DIR_FP
+    / "satellite_response_functions"
+    / "S2-SRF_COPE-GSEG-EOPG-TN-15-0007_3.2.xlsx",
+) -> pd.DataFrame:
+
+    response_fns_S2A = pd.read_excel(
+        response_fns_fp,
+        sheet_name="Spectral Responses (S2A)",
+        header=0,
+        index_col=0,
+    )
+    response_fns_S2B = pd.read_excel(
+        response_fns_fp,
+        sheet_name="Spectral Responses (S2B)",
+        header=0,
+        index_col=0,
+    )
+    # combine the two by averaging (minor technical differences between satellites in the same constellation)
+    return pd.DataFrame(
+        (response_fns_S2A.values + response_fns_S2B.values) / 2,
+        index=response_fns_S2A.index,
+        columns=response_fns_S2A.columns,
+    )
+
+
+def load_planet_response_fns(
+    response_fns_fp: str | Path = file_ops.RESOURCES_DIR_FP
+    / "satellite_response_functions"
+    / "dove_r.csv",
+) -> pd.DataFrame:
+    planet_response_fns = pd.read_csv(planet_response_fns_fp, index_col=0)
+    # planet has loads of small values in between the main peaks: for now, casting to nan   # TODO: improve
+    planet_response_fns[planet_response_fns < 0.01] = np.nan
+    return planet_response_fns
+
+
+def expand_df_with_empty_columns(full_df, subset_df):
+    missing_columns = set(full_df.columns) - set(subset_df.columns)
+    missing_df = pd.DataFrame(0, index=subset_df.index, columns=list(missing_columns))
+    subset_df = pd.concat([subset_df, missing_df], axis=1)
+
+    return subset_df[full_df.columns]
 
 
 # DEPRECATED #

@@ -1,6 +1,7 @@
 # general
 import numpy as np
 import pandas as pd
+import warnings
 
 # fitting
 from scipy.interpolate import UnivariateSpline
@@ -82,9 +83,11 @@ def generate_spectra_color(
     green_mask = (wvs > green_wvs[0]) & (wvs < green_wvs[1])
     blue_mask = (wvs > blue_wvs[0]) & (wvs < blue_wvs[1])
 
-    red_vals = np.nanmean(spectra[:, red_mask], axis=1)
-    green_vals = np.nanmean(spectra[:, green_mask], axis=1)
-    blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        red_vals = np.nanmean(spectra[:, red_mask], axis=1)
+        green_vals = np.nanmean(spectra[:, green_mask], axis=1)
+        blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
     rgb_values = np.vstack((red_vals, green_vals, blue_vals)).T
 
     return visualise_spectral_colours(rgb_values, vis_percentiles)
@@ -93,13 +96,18 @@ def generate_spectra_color(
 def visualise_spectral_colours(
     rgb_values: np.array, vis_percentiles: tuple[float] = (1, 99)
 ) -> np.ndarray:
-    # visualise via percentiles percentiles
-    percentiles = np.percentile(rgb_values, vis_percentiles, axis=0)
-    norm_rgb_values = (rgb_values - percentiles[0]) / (percentiles[1] - percentiles[0])
-    # Min-max normalization of values
-    maxes = np.max(norm_rgb_values, axis=0)
-    mins = np.min(norm_rgb_values, axis=0)
-    return (norm_rgb_values - mins) / (maxes - mins)
+    # Calculate percentiles for normalization
+    percentiles = np.nanpercentile(rgb_values, vis_percentiles, axis=0)
+
+    # Clip the values to the calculated percentiles
+    clipped_rgb_values = np.clip(rgb_values, percentiles[0], percentiles[1])
+
+    # Normalize the clipped values to the range [0, 1]
+    norm_rgb_values = (clipped_rgb_values - percentiles[0]) / (
+        percentiles[1] - percentiles[0]
+    )
+
+    return norm_rgb_values
 
 
 def plot_spline_fits(
@@ -349,10 +357,17 @@ def plot_single_fit(
     # generate colour as a sum of the components
     color_dict = {c: plt.cm.tab20(i) for i, c in enumerate(endmember_cats)}
     y = np.zeros(endmember_contribution.shape[1])
-    for label, endmember in zip(endmember_cats, endmember_contribution):
-        ynew = y + endmember
+    # for label, endmember in zip(endmember_cats, endmember_contribution):
+    for i, (key, endmember) in enumerate(endmember_contribution.iterrows()):
+        ynew = np.array(y + np.array(endmember, dtype=np.float32))
         axs[1].fill_between(
-            wvs, y, ynew, label=label, lw=0, color=color_dict[label], alpha=0.5
+            wvs,
+            y,
+            ynew,
+            # label=endmember_cats[i],
+            # lw=0,
+            # color=color_dict[endmember_cats[i]],
+            # alpha=0.5,
         )
         y = ynew
 
@@ -364,10 +379,10 @@ def plot_single_fit(
         )
     )
     max_r_ax = axs[0].get_ylim()[1]
-    axs[1].set_ylim(
-        bottom=np.min(endmember_contribution),
-        top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
-    )  # surely endmember contribution is always less than total reflectance?
+    # axs[1].set_ylim(
+    #     bottom=np.min(endmember_contribution),
+    #     top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
+    # )  # surely endmember contribution is always less than total reflectance?
     axs[1].legend(bbox_to_anchor=(1, 1), fontsize=8)
     axs[1].set_xlabel("Wavelength (nm)")
 
@@ -495,19 +510,22 @@ def plot_regression_axis(
             cbar.set_label("Depth", fontsize=8)
             cbar.ax.tick_params(labelsize=6)
 
-        # plot error bars
-        ax.errorbar(
-            test_data,
-            pred_data,
-            # yerr=metadata["std_dev"].values,
-            yerr=metadata[
-                metadata.columns[[labels.columns[0] in col for col in metadata.columns]]
-            ].values.squeeze(),
-            fmt="none",
-            alpha=0.01,
-            color="k",
-            zorder=-10,
-        )
+        if "*_std_dev" in metadata.columns:  # if std provided
+            # plot error bars
+            ax.errorbar(
+                test_data,
+                pred_data,
+                # yerr=metadata["std_dev"].values,
+                yerr=metadata[
+                    metadata.columns[
+                        [labels.columns[0] in col for col in metadata.columns]
+                    ]
+                ].values.squeeze(),
+                fmt="none",
+                alpha=0.01,
+                color="k",
+                zorder=-10,
+            )
     else:
         scatter = ax.scatter(test_data, pred_data, s=5, alpha=0.3)
 
@@ -523,8 +541,6 @@ def plot_regression_axis(
     ax.axis("square")
     ax.set_xticks(np.arange(0, 1.1, 0.5))
     ax.set_yticks(np.arange(0, 1.1, 0.5))
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
     ax.tick_params(axis="both", which="major", labelsize=6)
     ax.grid(True, which="both", ls="-", alpha=0.3)
     ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
@@ -532,10 +548,11 @@ def plot_regression_axis(
     if np.sum(pred_data > 0.001):
         xs = np.linspace(0, 1, 100)
         try:
-            p = np.polyfit(test_data, pred_data, 1)
+            p = np.polyfit(test_data.squeeze(), pred_data, 1)
             y_est = np.polyval(p, xs)
             ax.plot(xs, y_est, color="r", ls=":", alpha=0.8)
-            y_err = test_data.std() * np.sqrt(
+            # if test_data.shape
+            y_err = test_data.squeeze().std() * np.sqrt(
                 1 / len(xs) + (xs - xs.mean()) ** 2 / np.sum((xs - xs.mean()) ** 2)
             )
             ax.fill_between(xs, y_est - y_err, y_est + y_err, alpha=0.2)
@@ -572,6 +589,7 @@ def plot_regression_results(
 
     xs = np.linspace(0, np.max(test_data), 100)
     color_map = plt.cm.get_cmap("viridis_r" if color_by == "Depth" else "tab20")
+    max_val = max(np.max(test_data), np.max(pred_data))
 
     for i, (endmember, ax) in enumerate(
         zip(labels.columns, axs.flat if num_plots > 1 else axs)
@@ -592,6 +610,163 @@ def plot_regression_results(
             metadata,
             color_by,
         )
+        ax.set_xlim(0, max_val)
+        ax.set_ylim(0, max_val)
+
+
+# PORT FROM SHIFTPY/REEFTRUTH
+def get_n_colors_from_hexes(
+    num: int,
+    hex_list: list[str] = ["#3B9AB2", "#78B7C5", "#EBCC2A", "#E1AF00", "#d83c04"],
+) -> list[str]:
+    """
+    from Wes Anderson: https://github.com/karthik/wesanderson/blob/master/R/colors.R
+    Get a list of n colors from a list of hex codes.
+
+    Args:
+        num (int): The number of colors to return.
+        hex_list (list[str]): The list of hex codes from which to create spectrum for sampling.
+
+    Returns:
+        list[str]: A list of n hex codes.
+    """
+    cmap = get_continuous_cmap(hex_list)
+    colors = [cmap(i / num) for i in range(num)]
+    hex_codes = [mcolors.to_hex(color) for color in colors]
+    return hex_codes
+
+
+class ColourMapGenerator:
+    """
+    Get a colormap for colorbar based on the specified type.
+
+    Parameters
+    ----------
+    cbar_type (str, optional): The type of colormap to retrieve. Options are 'seq' for sequential colormap and 'div'
+        for diverging colormap.
+
+    Returns
+    -------
+    matplotlib.colors.LinearSegmentedColormap: The colormap object.
+    """
+
+    def __init__(self):
+        self.sequential_hexes = ["#3B9AB2", "#78B7C5", "#EBCC2A", "#E1AF00", "#d83c04"]
+        self.diverging_hexes = ["#3B9AB2", "#78B7C5", "#FFFFFF", "#E1AF00", "#d83c04"]
+        self.cyclical_hexes = [
+            "#3B9AB2",
+            "#78B7C5",
+            "#EBCC2A",
+            "#E1AF00",
+            "#d83c04",
+            "#E1AF00",
+            "#EBCC2A",
+            "#78B7C5",
+            "#3B9AB2",
+        ]
+        self.conf_mat_hexes = ["#EEEEEE", "#3B9AB2", "#cae7ed", "#d83c04", "#E1AF00"]
+        self.residual_hexes = ["#3B9AB2", "#78B7C5", "#fafbfc", "#E1AF00", "#d83c04"]
+        self.lim_red_hexes = ["#EBCC2A", "#E1AF00", "#d83c04"]
+        self.lim_blue_hexes = ["#3B9AB2", "#78B7C5", "#FFFFFF"]
+
+    def get_cmap(self, cbar_type, vmin=None, vmax=None):
+        if cbar_type == "seq":
+            return get_continuous_cmap(self.sequential_hexes)
+        if cbar_type == "inc":
+            return get_continuous_cmap(self.sequential_hexes[2:])
+        elif cbar_type == "div":
+            if not (vmin and vmax):
+                raise ValueError(
+                    "Minimum and maximum values needed for divergent colorbar"
+                )
+            cmap = get_continuous_cmap(self.diverging_hexes)
+            norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+            return cmap, norm
+            # return get_continuous_cmap(self.diverging_hexes)
+        elif cbar_type == "res":
+            if not (vmin and vmax):
+                raise ValueError(
+                    "Minimum and maximum values needed for divergent colorbar"
+                )
+            cmap = get_continuous_cmap(self.residual_hexes)
+            norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0, vmax=vmax)
+            return cmap, norm
+        elif cbar_type == "cyc":
+            return get_continuous_cmap(self.cyclical_hexes)
+        elif cbar_type == "lim_blue":
+            return get_continuous_cmap(self.lim_blue_hexes)
+        elif cbar_type == "lim_red":
+            return get_continuous_cmap(self.lim_red_hexes)
+        elif cbar_type == "spatial_conf_matrix":
+            return mcolors.ListedColormap(self.conf_mat_hexes)
+        else:
+            raise ValueError(f"{cbar_type} not recognised.")
+
+
+def hex_to_rgb(value):
+    """
+    Convert a hexadecimal color code to RGB values.
+
+    Parameters
+    ----------
+    value (str): The hexadecimal color code as a string of 6 characters.
+
+    Returns
+    -------
+    tuple: A tuple of three RGB values.
+    """
+    value = value.strip("#")  # removes hash symbol if present
+    hex_el = len(value)
+    return tuple(
+        int(value[i : i + hex_el // 3], 16)  # noqa
+        for i in range(0, hex_el, hex_el // 3)
+    )
+
+
+def get_continuous_cmap(hex_list, float_list=None):
+    """
+    Create and return a color map that can be used in heat map figures.
+
+    Parameters
+    ----------
+    hex_list (list of str): List of hex code strings representing colors.
+    float_list (list of float, optional): List of floats between 0 and 1, same length as hex_list. Must start with 0
+        and end with 1.
+
+    Returns
+    -------
+    matplotlib.colors.LinearSegmentedColormap: The created color map.
+    """
+    rgb_list = [rgb_to_dec(hex_to_rgb(i)) for i in hex_list]
+    if float_list:
+        pass
+    else:
+        float_list = list(np.linspace(0, 1, len(rgb_list)))
+
+    cdict = dict()
+    for num, col in enumerate(["red", "green", "blue"]):
+        col_list = [
+            [float_list[i], rgb_list[i][num], rgb_list[i][num]]
+            for i in range(len(float_list))
+        ]
+        cdict[col] = col_list
+    cmp = mcolors.LinearSegmentedColormap("my_cmp", segmentdata=cdict, N=256)
+    return cmp
+
+
+def rgb_to_dec(value):
+    """
+    Convert RGB color values to decimal values (each value divided by 256).
+
+    Parameters
+    ----------
+    value (list): A list of three RGB values.
+
+    Returns
+    -------
+    list: A list of three decimal values.
+    """
+    return [v / 256 for v in value]
 
 
 # DEPRECATED
