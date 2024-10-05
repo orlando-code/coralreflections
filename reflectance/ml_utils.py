@@ -53,6 +53,7 @@ class MLDataPipe:
         normalise: bool = True,
         scaler_type: str = "minmax",
         random_seed: int = 42,
+        emulation_source: str = None,
     ):
         self.data_source = data_source
         self.endmember_class_schema = endmember_class_schema
@@ -62,14 +63,35 @@ class MLDataPipe:
         self.normalise = normalise
         self.scaler_type = scaler_type
         self.random_seed = random_seed
+        self.emulation_source = emulation_source
 
     def load_prism_spectra(self):
-        raw_spectra = spectrum_utils.load_spectra()
-        self.spectra = spectrum_utils.preprocess_prism_spectra(
-            raw_spectra, spectrum_utils.NIR_WAVELENGTHS, spectrum_utils.SENSOR_RANGE
-        )
+        self.raw_spectra = spectrum_utils.load_spectra()
+        if self.emulation_source:
+            match self.emulation_source.lower():
+                case "s2":
+                    self.response_fns = spectrum_utils.load_s2_response_fns()
+                    self.bois = ["B2", "B3", "B4", "B8A"]
+
+                case "planet":
+                    self.response_fns = spectrum_utils.load_planet_response_fns()
+                    self.bois = ["Blue", "Green", "Red", "NIR"]
+                case _:
+                    raise ValueError(
+                        f"Emulation source '{self.emulation_source}' not recognised"
+                    )
+            self.spectra = spectrum_utils.visualise_satellite_from_prism(
+                self.raw_spectra, self.response_fns, self.bois
+            )
+        else:
+            self.spectra = spectrum_utils.preprocess_prism_spectra(
+                self.raw_spectra,
+                spectrum_utils.NIR_WAVELENGTHS,
+                spectrum_utils.SENSOR_RANGE,
+            )
 
     def load_fitted_spectra(self):
+        # TODO: not hardcoded
         fit_fp = "/Users/rt582/Library/CloudStorage/OneDrive-UniversityofCambridge/cambridge/phd/coralreflections/results/fits/fit_results_1.csv"
         fits = pd.read_csv(fit_fp, header=[0, 1])
 
@@ -169,6 +191,16 @@ class MLDataPipe:
         match self.data_source:
             case "prism_fits":
                 fitted_spectra = self.load_fitted_spectra()
+
+                if self.emulation_source:
+                    # add more bands (0 value) to fitted spectra to match raw_prism
+                    fitted_spectra = spectrum_utils.expand_df_with_empty_columns(
+                        self.raw_spectra, fitted_spectra
+                    )
+                    fitted_spectra = spectrum_utils.visualise_satellite_from_prism(
+                        fitted_spectra, self.response_fns, self.bois
+                    )
+
                 train_fitted_inds = self.X_train.index.intersection(
                     fitted_spectra.index
                 )
@@ -477,3 +509,28 @@ def envi_to_xarray_with_latlon(envi_fp, band_vals: list[float] = None):
         )
 
     return dataset
+
+
+def get_model_std_dev(model, X_test, y_test: pd.DataFrame) -> pd.DataFrame:
+
+    predictions = []
+    for i, tree in enumerate(model.estimators_):
+        predictions.append(tree.predict(X_test))
+
+    np.array(predictions).shape
+    stds = np.std(predictions, axis=0)
+
+    return stds
+
+
+def generate_model_metadata(validation_data, model, X_test, y_test):
+    std_dev_predictions = get_model_std_dev(model, X_test, y_test)
+    predictions_std_dev = pd.DataFrame(
+        std_dev_predictions,
+        index=y_test.index,
+        columns=[col + "_std_dev" for col in y_test.columns],
+    )
+    return pd.concat(
+        [validation_data.loc[y_test.index, ["Locale", "Depth"]], predictions_std_dev],
+        axis=1,
+    )
