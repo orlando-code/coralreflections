@@ -403,8 +403,20 @@ def spectral_xa_to_processed_spectral_df(
     )
 
 
-def process_df_for_inference(spectra_df: pd.DataFrame) -> pd.DataFrame:
+def process_df_for_inference(
+    spectra_df: pd.DataFrame, dim_red: bool = True
+) -> pd.DataFrame:
     no_nans_spectra_df = spectra_df.dropna()
+    if dim_red:
+        from sklearn.decomposition import PCA
+
+        pca = PCA(n_components=5)
+        no_nans_spectra_df = pd.DataFrame(
+            pca.fit_transform(no_nans_spectra_df),
+            index=no_nans_spectra_df.index,
+            # columns=[f"PCA_{i}" for i in range(5)],
+        )
+
     scaler = MinMaxScaler()
     scaler = scaler.fit(no_nans_spectra_df)
     return pd.DataFrame(
