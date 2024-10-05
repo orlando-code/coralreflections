@@ -18,6 +18,10 @@ from sklearn.preprocessing import MinMaxScaler
 
 # spatial
 import xarray as xa
+import xesmf as xe
+import rioxarray
+from pyproj import Transformer
+import rasterio
 
 # custom
 from reflectance import spectrum_utils, file_ops
@@ -358,12 +362,12 @@ def infer_on_spatial(
 
 
 def spectral_xa_to_processed_spectral_df(
-    spectra_xa: xa.Dataset, sensor_range: tuple[float] = None
+    spectra_xa: xa.Dataset, sensor_range: tuple[float] = spectrum_utils.SENSOR_RANGE
 ) -> pd.DataFrame:
-    spectra_df = spectra_xa.values.reshape(spectra_xa.shape[0], -1)
+    spectra_vals = spectra_xa.values.reshape(spectra_xa.shape[0], -1)
     wvs = spectra_xa.coords["band"].values
     return spectrum_utils.preprocess_prism_spectra(
-        pd.DataFrame(spectra_df.T, columns=wvs), sensor_range=sensor_range
+        pd.DataFrame(spectra_vals.T, columns=wvs), sensor_range=sensor_range
     )
 
 
@@ -396,3 +400,80 @@ def append_inferred_values_to_xa(
         spectra_xa[class_name + "_pred"] = (["lat", "lon"], prediction_array[:, :, i])
 
     return spectra_xa
+
+
+def regrid_with_xesmf(ds: xa.Dataset | xa.DataArray) -> xa.Dataset:
+    # Reproject the dataset first, keeping the original shape and filling nodata with NaN
+    ds = ds.rio.reproject(
+        "EPSG:4326", shape=(ds.sizes["y"], ds.sizes["x"]), nodata=np.nan
+    )
+
+    # Create new latitude and longitude arrays for the target grid
+    lat_new = np.linspace(ds.lat.min(), ds.lat.max(), ds.sizes["y"])
+    lon_new = np.linspace(ds.lon.min(), ds.lon.max(), ds.sizes["x"])
+
+    # Define the target grid with the new latitude and longitude coordinates
+    target_grid = xa.Dataset({"lat": (["lat"], lat_new), "lon": (["lon"], lon_new)})
+
+    # Create the regridder object (bilinear interpolation)
+    regridder = xe.Regridder(ds, target_grid, "bilinear", unmapped_to_nan=True)
+
+    if isinstance(ds, xa.Dataset):
+        regridded_data = xa.Dataset()
+        for var in ds.data_vars:
+            # Only regrid variables that have dimensions compatible with lat/lon
+            if "y" in ds[var].dims and "x" in ds[var].dims:
+                regridded_data[var] = regridder(ds[var])
+                regridded_data[var].attrs = ds[var].attrs
+            else:
+                # Skip variables without spatial dimensions or handle them differently
+                regridded_data[var] = ds[var]
+    else:
+        # If ds is a DataArray, directly regrid it
+        regridded_data = regridder(ds)
+        regridded_data.attrs = ds.attrs
+
+    # Ensure the new dataset has the correct CRS after regridding
+    regridded_data.rio.write_crs("EPSG:4326", inplace=True)
+
+    return regridded_data
+
+
+def envi_to_xarray_with_latlon(envi_fp, band_vals: list[float] = None):
+    # Open the ENVI file using rasterio
+    with rasterio.open(envi_fp) as src:
+        data = src.read()
+        transform = src.transform
+        height, width = src.shape
+
+        # generate UTM coordinates from pixel indices using the affine transform
+        x_coords, y_coords = np.meshgrid(np.arange(width), np.arange(height))
+        x_coords, y_coords = rasterio.transform.xy(transform, y_coords, x_coords)
+
+        # Convert the UTM coordinates to numpy arrays
+        x_coords = np.array(x_coords)
+        y_coords = np.array(y_coords)
+
+        # Convert UTM to lat/lon using pyproj or rasterio's CRS info
+        transformer = Transformer.from_crs(src.crs, "EPSG:4326", always_xy=True)
+        lon_coords, lat_coords = transformer.transform(x_coords, y_coords)
+
+        # Reshape lat and lon arrays to match the image dimensions
+        lat_coords = np.reshape(lat_coords, (height, width))
+        lon_coords = np.reshape(lon_coords, (height, width))
+
+        # Create the xarray Dataset with lat/lon as coordinates
+        dataset = xa.DataArray(
+            data=data,  # The raster data
+            dims=("band", "y", "x"),  # Dimensions of the data (e.g., bands, rows, cols)
+            coords={
+                "lat": (["y", "x"], lat_coords),  # Latitude coordinates (reshaped)
+                "lon": (["y", "x"], lon_coords),  # Longitude coordinates (reshaped)
+                "band": (
+                    band_vals if band_vals else np.arange(1, data.shape[0] + 1)
+                ),  # Band indices
+            },
+            attrs=src.meta,  # Include the ENVI metadata
+        )
+
+    return dataset
