@@ -285,9 +285,11 @@ class OptPipe:
             ).spectra  # TODO: make not janky
             raw_spectra_with_nans = xa_ds.values.reshape(xa_ds.sizes["band"], -1)
             wvs = xa_ds.coords["band"].values
-            self.raw_spectra = pd.DataFrame(
-                raw_spectra_with_nans.T, columns=wvs
-            ).dropna(axis=0)
+            self.raw_spectra = (
+                pd.DataFrame(raw_spectra_with_nans.T, columns=wvs)
+                .dropna(axis=0)
+                .iloc[:100, :]
+            )
         else:
             self.raw_spectra = spectrum_utils.load_spectra(self.gcfg.spectra_fp)
 
@@ -345,7 +347,7 @@ class OptPipe:
         )
 
         # if self.exec_kwargs["tqdm"]:
-        fitted_params = Parallel(n_jobs=84)(
+        fitted_params = Parallel(n_jobs=220)(
             delayed(partial_wrapper)(index)
             for index in tqdm(self.spectra.index, miniters=10, desc="Fitting spectra")
         )
@@ -586,50 +588,38 @@ class OptPipe:
             ("calculate_error_metrics", self.calculate_error_metrics),
         ]
         print("\n")
+        for step_name, step_method in pipeline_steps:
+            print(step_name)
+            step_method()
+            # profile_step(step_name, step_method)
+        # return self.error_metrics
+        # try:
+        # generate results (these steps not guarded by error catcher intentionally)
+        self.generate_results_summary()
+        self.generate_fit_results()
+        # except:
+        # print("Error in generating results")
         # for step_name, step_method in pipeline_steps:
-        #     # print(step_name)
-        #     step_method()
-        #     # profile_step(step_name, step_method)
+        #     try:
+        #         step_method()
+        #         # profile_step(step_name, step_method)
+        #     except Exception as e:
+        #         print(
+        #             "e:", e
+        #         )  # useful for debugging since logging otherwise hides until end
+        #         print(
+        #             "step_name", step_name
+        #         )  # useful for debugging since logging otherwise hides until end
+        #         self.e = e
+        #         self.e_step = step_name
 
         # try:
         #     # generate results (these steps not guarded by error catcher intentionally)
         #     self.generate_results_summary()
         #     self.generate_fit_results()
-        # except:
-        #     pass
-        for step_name, step_method in pipeline_steps:
-            try:
-                step_method()
-                # profile_step(step_name, step_method)
-            except Exception as e:
-                print(
-                    "e:", e
-                )  # useful for debugging since logging otherwise hides until end
-                print(
-                    "step_name", step_name
-                )  # useful for debugging since logging otherwise hides until end
-                self.e = e
-                self.e_step = step_name
-            try:
-                step_method()
-                # profile_step(step_name, step_method)
-            except Exception as e:
-                print(
-                    "e:", e
-                )  # useful for debugging since logging otherwise hides until end
-                print(
-                    "step_name", step_name
-                )  # useful for debugging since logging otherwise hides until end
-                self.e = e
-                self.e_step = step_name
-
-        try:
-            # generate results (these steps not guarded by error catcher intentionally)
-            self.generate_results_summary()
-            self.generate_fit_results()
-        except Exception as e:
-            print("e", e)
-        print(self.cfg)
+        # except Exception as e:
+        #     print("e", e)
+        # print(self.cfg)
 
         return self.fit_results
 
