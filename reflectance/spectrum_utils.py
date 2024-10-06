@@ -497,9 +497,7 @@ def og_rg_of(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
     )
     ssq = np.sum((obs - pred) ** 2)
     penalty = np.sum(np.array([Rb_values]) ** 2)
-    penalty_scale = ssq / max(
-        penalty.max(), 1
-    )  # doesn't this just remove the Rb penalty?
+    penalty_scale = ssq / max(penalty, 1)  # doesn't this just remove the Rb penalty?
     return ssq + penalty_scale * penalty
 
 
@@ -540,11 +538,10 @@ def r2_objective_fn(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
         endmember_array, bb, K, H, (bb_m, bb_c, Kd_m, Kd_c), *Rb_values
     )
     ssq = calc_ssq(obs, pred)
-    penalty = np.sum(np.array(Rb_values) ** 2)
-    penalty_scale = ssq / max(
-        penalty.max(), 1
-    )  # doesn't this just remove the Rb penalty?
-    return ssq + penalty_scale * penalty
+    penalty = np.nansum(np.nansum(np.array(Rb_values) ** 2))
+    penalty_scale = ssq / max(penalty, 1)  # doesn't this just remove the Rb penalty?
+
+    return ssq  # + penalty_scale * penalty
 
 
 def calc_ssq(obs, pred):
