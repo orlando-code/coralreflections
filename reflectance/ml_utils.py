@@ -404,17 +404,17 @@ def spectral_xa_to_processed_spectral_df(
 
 
 def process_df_for_inference(
-    spectra_df: pd.DataFrame, dim_red: bool = True
+    spectra_df: pd.DataFrame, dim_red: int = 5
 ) -> pd.DataFrame:
     no_nans_spectra_df = spectra_df.dropna()
     if dim_red:
         from sklearn.decomposition import PCA
 
-        pca = PCA(n_components=5)
+        pca = PCA(n_components=dim_red)
         no_nans_spectra_df = pd.DataFrame(
             pca.fit_transform(no_nans_spectra_df),
             index=no_nans_spectra_df.index,
-            # columns=[f"PCA_{i}" for i in range(5)],
+            columns=[i for i in range(5)],
         )
 
     scaler = MinMaxScaler()
@@ -424,6 +424,23 @@ def process_df_for_inference(
         index=no_nans_spectra_df.index,
         columns=no_nans_spectra_df.columns,
     )
+
+
+def reform_spatial_from_df(
+    df, full_index, og_ds: xa.DataArray | xa.Dataset, new_dim_name: str = "new"
+) -> xa.Dataset:
+    filled_df = df.reindex(full_index)
+
+    data = filled_df.values.reshape(og_ds.shape[1], og_ds.shape[2], len(df.columns))
+    # create new dataset with same spatial extent as the original
+
+    # Create a new DataArray with the new data and the original spatial coordinates
+    ds = xa.DataArray(
+        data,
+        coords={"lat": og_ds.lat, "lon": og_ds.lon, new_dim_name: df.columns},
+        dims=["lat", "lon", new_dim_name],
+    )
+    return ds
 
 
 def append_inferred_values_to_xa(
