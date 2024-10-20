@@ -12,6 +12,13 @@ from matplotlib import ticker
 import plotly.graph_objs as go
 import matplotlib.colors as mcolors
 
+# spatial
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+import xarray as xa
+from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+
 # metrics
 from sklearn.metrics import r2_score
 
@@ -62,7 +69,7 @@ class SpectralColour:
 
 
 def generate_spectra_color(
-    spectra_df: pd.DataFrame, vis_percentiles: tuple[float] = (1, 99)
+    spectra_df: pd.DataFrame, vis_percentiles: tuple[float] = (1, 99), wvs=None
 ) -> np.ndarray:
     """
     Generate RGB visualisation of spectra from hyperspectral data.
@@ -76,8 +83,8 @@ def generate_spectra_color(
     """
     blue_wvs, green_wvs, red_wvs = SpectralColour().generate_wv_lims()
 
-    wvs = spectra_df.columns.to_numpy()
-    spectra = spectra_df.to_numpy()
+    wvs = np.array(spectra_df.columns) if wvs is None else wvs
+    spectra = np.array(spectra_df)
 
     red_mask = (wvs > red_wvs[0]) & (wvs < red_wvs[1])
     green_mask = (wvs > green_wvs[0]) & (wvs < green_wvs[1])
@@ -88,8 +95,13 @@ def generate_spectra_color(
         red_vals = np.nanmean(spectra[:, red_mask], axis=1)
         green_vals = np.nanmean(spectra[:, green_mask], axis=1)
         blue_vals = np.nanmean(spectra[:, blue_mask], axis=1)
-    rgb_values = np.vstack((red_vals, green_vals, blue_vals)).T
+    return np.vstack((red_vals, green_vals, blue_vals)).T
 
+
+def generate_and_visualise_spectral_colours(
+    spectra_df, vis_percentiles=(1, 99), wvs=None
+):
+    rgb_values = generate_spectra_color(spectra_df, vis_percentiles, wvs)
     return visualise_spectral_colours(rgb_values, vis_percentiles)
 
 
@@ -507,7 +519,7 @@ def plot_regression_axis(
             # if i == 0:
             cbar_ax = fig.add_axes([0.3, 0.05, 0.4, 0.02])
             cbar = fig.colorbar(scatter, cax=cbar_ax, orientation="horizontal")
-            cbar.set_label("Depth", fontsize=8)
+            cbar.set_label("Depth")
             cbar.ax.tick_params(labelsize=6)
 
         if "*_std_dev" in metadata.columns:  # if std provided
@@ -543,7 +555,7 @@ def plot_regression_axis(
     ax.set_yticks(np.arange(0, 1.1, 0.5))
     ax.tick_params(axis="both", which="major", labelsize=6)
     ax.grid(True, which="both", ls="-", alpha=0.3)
-    ax.plot([0, 1], [0, 1], color="k", ls="--", alpha=0.5)
+    ax.plot([0, 1], [0, 1], color="white", ls="--", alpha=0.5)
 
     if np.sum(pred_data > 0.001):
         xs = np.linspace(0, 1, 100)
@@ -574,6 +586,7 @@ def plot_regression_axis(
 
     if color_by == "Locale" and metadata is not None:
         fig.legend(handles=handles, loc="lower center", fontsize=6, ncol=len(handles))
+    return fig, ax
 
 
 # ML
@@ -601,7 +614,7 @@ def plot_regression_results(
             pred = pred_data
             true = test_data.values[:, 0]
 
-        plot_regression_axis(
+        fig, ax = plot_regression_axis(
             fig,
             ax,
             true,
@@ -612,6 +625,8 @@ def plot_regression_results(
         )
         ax.set_xlim(0, max_val)
         ax.set_ylim(0, max_val)
+
+    return fig, axs
 
 
 # PORT FROM SHIFTPY/REEFTRUTH
@@ -837,6 +852,7 @@ def plot_spatial(
         "cbar_pad": 0.1,
         "cbar_frac": 0.025,
         "cmap_type": "seq",
+        "fontsize": 14,
     }
 
     if cbar_dict:
@@ -850,14 +866,14 @@ def plot_spatial(
     if isinstance(xa_da, xa.DataArray) and not cbar_name:
         cbar_name = xa_da.name
 
-    # if title not specified, make title of variable at resolution
-    if title:
-        if title == "default":
-            resolution_d = np.mean(utils.calculate_spatial_resolution(xa_da))
-            resolution_m = np.mean(utils.degrees_to_distances(resolution_d))
-            title = (
-                f"{cbar_name} at {resolution_d:.4f}° (~{resolution_m:.0f} m) resolution"
-            )
+    # # if title not specified, make title of variable at resolution
+    # if title:
+    #     if title == "default":
+    #         resolution_d = np.mean(utils.calculate_spatial_resolution(xa_da))
+    #         resolution_m = np.mean(utils.degrees_to_distances(resolution_d))
+    #         title = (
+    #             f"{cbar_name} at {resolution_d:.4f}° (~{resolution_m:.0f} m) resolution"
+    #         )
 
     # if colorbar limits not specified, set to be maximum of array
     if not val_lims:  # TODO: allow dynamic specification of only one of min/max
@@ -955,11 +971,13 @@ def format_cbar(image, fig, ax, cbar_dict, labels: list[str] = ["l", "b"]):
         cax=cax,
         fraction=cbar_dict["cbar_frac"],
         extend=cbar_dict["extend"] if "extend" in cbar_dict else "neither",
+        pad=cbar_dict["cbar_pad"],
     )
     if cbar_dict["orientation"] == "horizontal":
         cbar_ticks = cb.ax.get_xticklabels()
     else:
         cbar_ticks = cb.ax.get_yticklabels()
+    cb.set_label(label=cbar_dict["cbar_name"], size=cbar_dict["fontsize"])
 
     return cb, cbar_ticks, labels
 
@@ -975,6 +993,7 @@ def format_cartopy_display(ax, cartopy_dict: dict = None):
         "facecolor": "white",
         "linewidth": 0.5,
         "alpha": 0.7,
+        "labels": True,
     }
 
     if cartopy_dict:

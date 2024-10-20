@@ -16,7 +16,7 @@
     spectra_normalisation: false
   simulation:
     type: "spread"
-    N: 1
+    N: 100
     Rb_vals: [1, 0.2, 0]  # algae, coral, sand
     n_depths: 10
     depth_lims: [0, 16.8]
@@ -62,7 +62,7 @@
     spectra_normalisation: false
   simulation:
     type: "spread"
-    N: 1
+    N: 100
     Rb_vals: [1, 0.2, 0]  # algae, coral, sand
     n_depths: 10
     depth_lims: [0, 16.8]

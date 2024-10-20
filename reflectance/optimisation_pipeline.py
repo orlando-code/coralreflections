@@ -92,11 +92,11 @@ class SimulateSpectra(GenerateEndmembers):
 
     def __init__(
         self,
-        cfg: file_ops.RunOptPipeConfig,
         gcfg: file_ops.GlobalOptPipeConfig,
+        cfg: file_ops.RunOptPipeConfig,
     ):
-        self.cfg = cfg
         self.gcfg = gcfg
+        self.cfg = cfg
 
     def spread_spectra(self):
         self.raw_spectra, self.spectra_metadata = (

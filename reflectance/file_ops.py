@@ -26,6 +26,7 @@ TMP_DIR_FP = BASE_DIR_FP / "tmp"
 CONFIG_DIR_FP = BASE_DIR_FP / "configs"
 
 KANEOHE_HS_FP = TMP_DIR_FP / "kaneohe_hs_masked.nc"
+KANEOHE_VAL_SPECTRA_FP = TMP_DIR_FP / "median_reverse_matched_spectra.csv"
 
 
 @dataclass

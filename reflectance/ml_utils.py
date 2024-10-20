@@ -47,16 +47,19 @@ class MLDataPipe:
         self,
         data_source: str = "prism",
         endmember_class_schema: str = "three_endmember",
-        gcfg: dict = file_ops.read_yaml(file_ops.CONFIG_DIR_FP / "glob_cfg.yaml"),
+        gcfg: dict = file_ops.instantiate_single_configs_instance()[0],
         train_ratio: float = 0.8,
         target: str = "endmember",
         normalise: bool = True,
         scaler_type: str = "minmax",
         random_seed: int = 42,
         emulation_source: str = None,
+        label_noise_level: float = None,
+        cfg: dict = file_ops.instantiate_single_configs_instance()[1],
     ):
         self.data_source = data_source
         self.endmember_class_schema = endmember_class_schema
+        self.cfg = cfg
         self.gcfg = gcfg
         self.train_ratio = train_ratio
         self.target = target.lower()
@@ -64,10 +67,17 @@ class MLDataPipe:
         self.scaler_type = scaler_type
         self.random_seed = random_seed
         self.emulation_source = emulation_source
+        self.label_noise_level = label_noise_level
+        self.n_plus = 0
 
     def load_prism_spectra(self):
-        self.raw_spectra = spectrum_utils.load_spectra()
-        if self.emulation_source:
+        if "kaneohe" in self.data_source:
+            self.raw_spectra = spectrum_utils.load_spectra(
+                file_ops.KANEOHE_VAL_SPECTRA_FP
+            )
+        else:
+            self.raw_spectra = spectrum_utils.load_spectra()
+        if self.emulation_source:  # if emulating a different sensor
             match self.emulation_source.lower():
                 case "s2":
                     self.response_fns = spectrum_utils.load_s2_response_fns()
@@ -92,24 +102,53 @@ class MLDataPipe:
 
     def load_fitted_spectra(self):
         # TODO: not hardcoded
-        fit_fp = "/Users/rt582/Library/CloudStorage/OneDrive-UniversityofCambridge/cambridge/phd/coralreflections/results/fits/fit_results_1.csv"
-        fits = pd.read_csv(fit_fp, header=[0, 1])
+        fit_dfs = []
 
-        fitted_spectra = fits.fitted_spectra
+        # count number of "+" in self.data_source
+        self.n_plus = self.data_source.count("+")
+        for i in range(self.n_plus + 1):
+            fit_fp = file_ops.RESULTS_DIR_FP / f"fits/fit_results_{i+1}.csv"
+            fits = pd.read_csv(fit_fp, header=[0, 1])
+            fit_dfs.append(fits.fitted_spectra)
+        fitted_spectra = pd.concat(fit_dfs)
+        # fit_fp = file_ops.RESULTS_DIR_FP / "/fits/fit_results_1.csv"
+        # fits = pd.read_csv(fit_fp, header=[0, 1])
+
         fitted_spectra.columns = fitted_spectra.columns.astype(float)
         return fitted_spectra
 
     def load_simulation_spectra(self):
-        #     self.spectra = optimisation_pipeline.SimulateSpectra(
-        #         self.cfg, self.gcfg
-        #     ).generate_simulated_spectra()
-        # loading from file for now
-        import pickle
+        from reflectance import optimisation_pipeline
 
-        self.spectra = pickle.load(
-            open(file_ops.TMP_DIR_FP / "sims_df.pkl", "rb")
-        ).iloc[:, 4:]
-        self.labels = pickle.load(open(file_ops.TMP_DIR_FP / "labels_df.pkl", "rb"))
+        # TODO: add depth info as metadata
+
+        Rb_array = np.random.dirichlet(np.ones(3), 100)
+        Rb_df = pd.DataFrame(Rb_array, columns=["algae", "coral", "sand"])
+
+        sims = []
+        for Rb_vals in Rb_df.values:
+            self.cfg.simulation["Rb_vals"] = Rb_vals
+            sims.append(
+                optimisation_pipeline.SimulateSpectra(
+                    self.gcfg, self.cfg
+                ).generate_simulated_spectra()
+            )
+
+        sims = pd.concat(sims)
+        # tile Rb_df to match the number of rows in sims
+        Rb_df = Rb_df.loc[Rb_df.index.repeat(self.cfg.simulation["N"])].reset_index(
+            drop=True
+        )
+        self.labels = Rb_df
+        self.spectra = sims.iloc[:, 4:]
+
+        # loading from file for now
+        # import pickle
+
+        # self.spectra = pickle.load(
+        #     open(file_ops.TMP_DIR_FP / "sims_df.pkl", "rb")
+        # ).iloc[:, 4:]
+        # self.labels = pickle.load(open(file_ops.TMP_DIR_FP / "labels_df.pkl", "rb"))
 
     def normalise_data(self):
         scaler = spectrum_utils.instantiate_scaler(self.scaler_type)
@@ -149,30 +188,45 @@ class MLDataPipe:
         )
 
     def generate_endmember_labels(self):
-        match self.data_source:
+        if self.data_source != "simulation":
             # if not simulation
-            case "prism" | "prism_fits" | "fits":
-                # process to correct class
-                self.validation_data = spectrum_utils.map_validation(
-                    self.validation_data, self.gcfg["endmember_map"]
-                )
-
-                endmember_schema_map = self.gcfg["endmember_schema"][
-                    self.endmember_class_schema
+            if self.data_source == "kaneohe" or self.data_source == "kaneohe_fits":
+                kbay_inds = self.validation_data.index[
+                    self.validation_data["Locale"] == "Kaneohe Bay"
                 ]
-                grouped_val_data = pd.DataFrame()
-                # group validation data by endmember categories in endmember_schema_map
-                for (
-                    endmember_dimensionality_reduction,
-                    validation_fields,
-                ) in endmember_schema_map.items():
-                    # fill in validation data with sum of all fields in the category
-                    grouped_val_data[endmember_dimensionality_reduction] = (
-                        self.validation_data[validation_fields].sum(axis=1)
-                    )
-                self.labels = grouped_val_data
-            case "simulation":
-                pass
+                self.validation_data = self.validation_data.loc[kbay_inds]
+                self.index_subset = kbay_inds
+
+            # process to correct class
+            self.validation_data = spectrum_utils.map_validation(
+                self.validation_data, self.gcfg.endmember_map
+            )
+
+            endmember_schema_map = self.gcfg.endmember_schema[
+                self.endmember_class_schema
+            ]
+            grouped_val_data = pd.DataFrame()
+            # group validation data by endmember categories in endmember_schema_map
+            for (
+                endmember_dimensionality_reduction,
+                validation_fields,
+            ) in endmember_schema_map.items():
+                # fill in validation data with sum of all fields in the category
+                grouped_val_data[endmember_dimensionality_reduction] = (
+                    self.validation_data[validation_fields].sum(axis=1)
+                )
+            self.labels = grouped_val_data
+            self.labels.reset_index(drop=True, inplace=True)
+            # add gaussian noise to labels
+            np.random.seed(self.random_seed)
+            if self.label_noise_level:
+                self.labels = self.labels + np.random.normal(
+                    0, self.label_noise_level, self.labels.shape
+                )
+        elif self.data_source == "simulation":
+            pass  # already handled in load_simulation_spectra
+        else:
+            raise ValueError(f"Data source '{self.data_source}' not recognised")
 
     def generate_depth_labels(self):
         self.labels = pd.DataFrame(
@@ -188,66 +242,74 @@ class MLDataPipe:
             test_size=1 - self.train_ratio,
             random_state=self.random_seed,
         )
-        match self.data_source:
-            case "prism_fits":
-                fitted_spectra = self.load_fitted_spectra()
+        if "fits" in self.data_source:
+            fitted_spectra = self.load_fitted_spectra()
 
-                if self.emulation_source:
-                    # add more bands (0 value) to fitted spectra to match raw_prism
-                    fitted_spectra = spectrum_utils.expand_df_with_empty_columns(
-                        self.raw_spectra, fitted_spectra
-                    )
-                    fitted_spectra = spectrum_utils.visualise_satellite_from_prism(
-                        fitted_spectra, self.response_fns, self.bois
+            if self.emulation_source:
+                # add more bands (0 value) to fitted spectra to match raw_prism
+                fitted_spectra = spectrum_utils.expand_df_with_empty_columns(
+                    self.raw_spectra, fitted_spectra
+                )
+                fitted_spectra = spectrum_utils.visualise_satellite_from_prism(
+                    fitted_spectra, self.response_fns, self.bois
+                )
+            if self.data_source == "kaneohe_fits":
+                fitted_spectra = fitted_spectra.loc[self.index_subset]
+                fitted_spectra.reset_index(drop=True, inplace=True)
+                # only use kaneohe bay data
+                # fitted_spectra = fitted_spectra.loc[
+                #     fitted_spectra.index.intersection(
+                #         self.validation_data.loc[self.index_subset].index
+                #     )
+                # ]
+                if np.any(fitted_spectra.columns != self.spectra.columns):
+                    # TODO: potentially interpolate fitted_spectra to match spectra
+                    fitted_spectra = fitted_spectra.reindex(
+                        columns=self.spectra.columns
                     )
 
-                train_fitted_inds = self.X_train.index.intersection(
-                    fitted_spectra.index
-                )
-                self.X_train = pd.concat(
-                    [self.X_train, fitted_spectra.loc[train_fitted_inds]]
-                )
-                self.y_train = pd.concat(
-                    [self.y_train, self.y_train.loc[train_fitted_inds]]
-                )
-                train_val_inds = self.X_train.index.intersection(
-                    self.validation_data.index
-                )
-                remaining_inds = fitted_spectra.index.difference(train_val_inds)
-                self.labels = pd.concat(
-                    [
-                        self.labels.loc[train_val_inds],
-                        self.labels.loc[train_val_inds],
-                        self.labels.loc[remaining_inds],
-                    ]
-                )
+            train_fitted_inds = self.X_train.index.intersection(fitted_spectra.index)
+            self.X_train = pd.concat(
+                [self.X_train, fitted_spectra.loc[train_fitted_inds]]
+            )
+            # double up on labels.
+            self.y_train = pd.concat(
+                [
+                    self.y_train,
+                    pd.concat(
+                        [self.y_train.loc[train_fitted_inds]] * (self.n_plus + 1),
+                        ignore_index=True,
+                    ),
+                ]
+            )
+            dropped_validation_inds = self.validation_data.reset_index(inplace=False)
+            train_val_inds = self.X_train.index.intersection(
+                # self.validation_data.index
+                dropped_validation_inds.index
+            )
+            remaining_inds = fitted_spectra.index.difference(train_val_inds)
+            self.labels = pd.concat(
+                [
+                    pd.concat(
+                        [self.labels.loc[train_val_inds]] * (self.n_plus + 1),
+                        ignore_index=True,
+                    ),
+                    # self.labels.loc[train_val_inds] * (self.n_plus + 1),
+                    self.labels.loc[remaining_inds],
+                ]
+            )
 
     def generate_data(self):
         self.load_validation_data()
-        # match self.data_source:
-        #     case "prism":
-        #         self.load_prism_spectra()
-        #     case "fits" | "fitted":
-        #         self.load_fitted_spectra()
-        #     case "fits_og":
-        #         self.load_fitted_spectra()
-        #         start_fits = self.spectra
-        #         self.load_prism_spectra()
-        #         self.spectra = pd.concat([start_fits, self.spectra])
-        #         self.validation_data = pd.concat(
-        #             [self.validation_data, self.validation_data]
-        #         )
-        #     case "simulation":
-        #         self.load_simulation_spectra()
-        #     case _:
-        #         raise ValueError(f"Data source '{self.data_source}' not recognised")
-        match self.data_source:
-            case "prism" | "prism_fits":
-                self.load_prism_spectra()
-            case "fits":
-                self.spectra = self.load_fitted_spectra()
-            case "simulation":
-                self.load_simulation_spectra()
+
+        if "fits" in self.data_source and "+" in self.data_source:
+            self.load_prism_spectra()
+        elif self.data_source == "fits":
+            self.spectra = self.load_fitted_spectra()
+        elif self.data_source == "simulation":
+            self.load_simulation_spectra()
+        elif "prism" in self.data_source or "kaneohe" in self.data_source:
+            self.load_prism_spectra()
 
         match self.target:
             case "endmember":
@@ -287,9 +349,9 @@ class sklModels:
                     "bootstrap": [True, False],  # comment out to allow OOB score
                     "max_depth": [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, None],
                     "max_features": [None, "log2", "sqrt"],
-                    "min_samples_leaf": [1, 2, 4],
-                    "min_samples_split": [2, 5, 10],
-                    "n_estimators": [130, 180, 230],
+                    "min_samples_leaf": [1, 2, 4, 8, 16],
+                    "min_samples_split": [2, 5, 10, 15, 20],
+                    "n_estimators": [130, 180, 230, 300],
                 }
             case "gradient_boosting":
                 self.grid = {
@@ -352,7 +414,7 @@ class sklModels:
             param_distributions=self.grid,
             n_iter=self.n_iter_search,
             n_jobs=self.n_jobs,
-            verbose=2,
+            verbose=1,
         )
 
         start = time()
@@ -377,10 +439,13 @@ class sklModels:
 
 
 def infer_on_spatial(
-    trained_model, spectra_xa: xa.Dataset, prediction_classes: list[str]
+    trained_model,
+    spectra_xa: xa.Dataset,
+    prediction_classes: list[str],
+    dim_red: int = None,
 ) -> xa.Dataset:
     spectra_df = spectral_xa_to_processed_spectral_df(spectra_xa)
-    no_nans_spectra_df_scaled = process_df_for_inference(spectra_df)
+    no_nans_spectra_df_scaled = process_df_for_inference(spectra_df, dim_red=dim_red)
     # infer on dataframe
     predictions = trained_model.predict(no_nans_spectra_df_scaled)
     # reassamble dataframe
@@ -410,6 +475,7 @@ def process_df_for_inference(
     if dim_red:
         from sklearn.decomposition import PCA
 
+        print("Doing PCA...")
         pca = PCA(n_components=dim_red)
         no_nans_spectra_df = pd.DataFrame(
             pca.fit_transform(no_nans_spectra_df),
@@ -536,6 +602,8 @@ def envi_to_xarray_with_latlon(envi_fp, band_vals: list[float] = None):
             },
             attrs=src.meta,  # Include the ENVI metadata
         )
+        # replace -9999 with NaN
+        dataset = dataset.where(dataset != -9999)
 
     return dataset
 

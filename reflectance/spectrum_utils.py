@@ -92,7 +92,7 @@ def load_aop_model(aop_group_num: int = 1) -> pd.DataFrame:
     return AOP_model
 
 
-def process_aop_model(aop_model, sensor_range):
+def process_aop_model(aop_model, sensor_range: tuple = SENSOR_RANGE):
     aop_sub = aop_model.loc[min(sensor_range) : max(sensor_range)]
     aop_args = (
         aop_sub.bb_m.values,
@@ -1127,7 +1127,7 @@ def load_planet_response_fns(
     / "satellite_response_functions"
     / "dove_r.csv",
 ) -> pd.DataFrame:
-    planet_response_fns = pd.read_csv(planet_response_fns_fp, index_col=0)
+    planet_response_fns = pd.read_csv(response_fns_fp, index_col=0)
     # planet has loads of small values in between the main peaks: for now, casting to nan   # TODO: improve
     planet_response_fns[planet_response_fns < 0.01] = np.nan
     return planet_response_fns
