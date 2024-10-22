@@ -404,6 +404,9 @@ def plot_single_fit(
 
 def plot_good_bad_fits(
     ax: plt.Axes,
+    spectra: pd.DataFrame,
+    fits: pd.DataFrame,
+    metadata: pd.DataFrame,
     metric: str = "r2",
     bad_fit_range: tuple[float, float] = [0, 0.1],
     metric_name: str = "r$^2$",
@@ -424,14 +427,14 @@ def plot_good_bad_fits(
     good_fits = metadata[~bad_inds]
 
     ax.plot(
-        sim_spectra_df.columns,
-        sim_spectra_df.loc[bad_fits.index].values.T,
+        spectra.columns,
+        spectra.loc[bad_fits.index].values.T,
         color="red",
         lw=0.6,
     )
     ax.plot(
-        sim_spectra_df.columns,
-        sim_spectra_df.loc[good_fits.index].values.T,
+        spectra.columns,
+        spectra.loc[good_fits.index].values.T,
         color="k",
         alpha=0.1,
         lw=0.6,
@@ -447,7 +450,7 @@ def plot_good_bad_fits(
     ax.set_title(
         f"Fitted simulated spectra (Rb + water column effects)\nNumber of bad fits: {bad_fits.shape[0]} (of {len(fits)})"
     )
-    ax.set_xlim(sim_spectra_df.columns.min(), sim_spectra_df.columns.max())
+    ax.set_xlim(spectra.columns.min(), spectra.columns.max())
     ax.legend()
     return ax
 
