@@ -340,10 +340,10 @@ def plot_interactive_coral_algae_spectrum(coral, algae, n_samples, coralgal_cmap
 
 
 def plot_single_fit(
-    fitted_params: np.array,
+    fitted_params: np.ndarray | pd.Series,
     true_spectrum: pd.Series,
-    AOP_args: tuple[np.array],
-    endmember_array: np.array,
+    AOP_args: tuple[np.ndarray],
+    endmember_array: np.ndarray,
     endmember_cats: list[str],
 ):
     """"""
@@ -400,6 +400,56 @@ def plot_single_fit(
     plt.suptitle(
         f"r$^2$: {r2:.4f} | spectral angle: {spectrum_utils.spectral_angle(true_spectrum, fitted_spectrum):.4f}"
     )
+
+
+def plot_good_bad_fits(
+    ax: plt.Axes,
+    metric: str = "r2",
+    bad_fit_range: tuple[float, float] = [0, 0.1],
+    metric_name: str = "r$^2$",
+):
+    """
+    Plot the good and bad fits based on a given metric.
+
+    Parameters:
+    - ax (plt.Axes): The axes on which to plot.
+    - metric (str): The metric to use for filtering.
+    - bad_fit_range (tuple): The range of bad fits.
+    - metric_name (str): The name of the metric.
+    """
+    bad_inds = (metadata[metric] < max(bad_fit_range)) & (
+        metadata[metric] > min(bad_fit_range)
+    )
+    bad_fits = metadata[bad_inds]
+    good_fits = metadata[~bad_inds]
+
+    ax.plot(
+        sim_spectra_df.columns,
+        sim_spectra_df.loc[bad_fits.index].values.T,
+        color="red",
+        lw=0.6,
+    )
+    ax.plot(
+        sim_spectra_df.columns,
+        sim_spectra_df.loc[good_fits.index].values.T,
+        color="k",
+        alpha=0.1,
+        lw=0.6,
+        zorder=-2,
+    )
+    ax.plot(
+        [],
+        [],
+        color="red",
+        lw=0.6,
+        label=f"bad fits: {min(bad_fit_range)} < {metric_name} < {max(bad_fit_range)}",
+    )
+    ax.set_title(
+        f"Fitted simulated spectra (Rb + water column effects)\nNumber of bad fits: {bad_fits.shape[0]} (of {len(fits)})"
+    )
+    ax.set_xlim(sim_spectra_df.columns.min(), sim_spectra_df.columns.max())
+    ax.legend()
+    return ax
 
 
 def plot_proportions(data: dict, true_ratio: list[float]):
