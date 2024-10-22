@@ -340,19 +340,28 @@ def plot_interactive_coral_algae_spectrum(coral, algae, n_samples, coralgal_cmap
 
 
 def plot_single_fit(
-    fitted_params, true_spectrum, AOP_args, endmember_array, endmember_cats
+    fitted_params: np.array,
+    true_spectrum: pd.Series,
+    AOP_args: tuple[np.array],
+    endmember_array: np.array,
+    endmember_cats: list[str],
 ):
     """"""
-    fig, axs = plt.subplots(2, 1, sharex=True, constrained_layout=True, figsize=(8, 6))
+    fig, axs = plt.subplots(
+        2, 1, sharex=True, sharey=True, constrained_layout=True, figsize=(8, 6)
+    )
 
+    # generate spectrum from fitted parameters
     wvs = true_spectrum.index
     fitted_spectrum = spectrum_utils.generate_spectrum(
         fitted_params, wvs, endmember_array, AOP_args
     )
+    # plot real and fitted spectra
     axs[0].plot(wvs, true_spectrum, label="spectrum")
     axs[0].plot(wvs, fitted_spectrum, color="red", alpha=0.7, label="fit")
-    axs[0].legend(fontsize=8)
+    axs[0].legend(bbox_to_anchor=(1.165, 1), fontsize=8)
 
+    # plot endmember contributions
     axs[1].plot(
         wvs,
         spectrum_utils.Rb_endmember(
@@ -369,38 +378,27 @@ def plot_single_fit(
     # generate colour as a sum of the components
     color_dict = {c: plt.cm.tab20(i) for i, c in enumerate(endmember_cats)}
     y = np.zeros(endmember_contribution.shape[1])
-    # for label, endmember in zip(endmember_cats, endmember_contribution):
-    for i, (key, endmember) in enumerate(endmember_contribution.iterrows()):
+    for i, endmember in enumerate(endmember_contribution):
         ynew = np.array(y + np.array(endmember, dtype=np.float32))
         axs[1].fill_between(
             wvs,
             y,
             ynew,
-            # label=endmember_cats[i],
-            # lw=0,
-            # color=color_dict[endmember_cats[i]],
-            # alpha=0.5,
+            label=endmember_cats[i],
+            lw=0,
+            color=color_dict[endmember_cats[i]],
+            alpha=0.5,
         )
         y = ynew
 
     # formatting
     axs[1].set_xlim(wvs.min(), wvs.max())
-    max_rb_ax = np.max(
-        spectrum_utils.Rb_endmember(
-            endmember_array, *fitted_params[3 : 3 + len(endmember_array)]
-        )
-    )
-    max_r_ax = axs[0].get_ylim()[1]
-    # axs[1].set_ylim(
-    #     bottom=np.min(endmember_contribution),
-    #     top=max_r_ax if max_r_ax > max_rb_ax else max_rb_ax * 1.1,
-    # )  # surely endmember contribution is always less than total reflectance?
     axs[1].legend(bbox_to_anchor=(1, 1), fontsize=8)
     axs[1].set_xlabel("Wavelength (nm)")
-
+    [ax.set_ylabel("Reflectance") for ax in axs]
     r2 = r2_score(true_spectrum, fitted_spectrum)
     plt.suptitle(
-        f"r$^2$: {r2:.4f} | sa: {spectrum_utils.spectral_angle(true_spectrum, fitted_spectrum):.4f}"
+        f"r$^2$: {r2:.4f} | spectral angle: {spectrum_utils.spectral_angle(true_spectrum, fitted_spectrum):.4f}"
     )
 
 
