@@ -353,19 +353,20 @@ def _wrapper(
             bounds = [bb_bounds, Kd_bounds, H_bounds] + [
                 [np.inf if isinstance(b, str) else b for b in endmember_bounds],
             ] * len(endmember_array)
-        else:
-            bounds = None
+    else:
+        x0 = [0.1, 0.1, 0.1] + [Rb_init] * len(endmember_array)
+        bounds = None
 
     fit = minimize(
         of,
         x0=x0,  # initial coefficient values
         # extra arguments passsed to the object function (and its derivatives)
         args=(
-            obs_spectra.loc[i],  # spectrum to fit (obs)
+            obs_spectra.loc[i],  # spectrum to fit (observed)
             *AOP_args,  # backscatter and attenuation coefficients (bb_m, bb_c, Kd_m, Kd_c)
             endmember_array,  # typical end-member spectra
         ),
-        bounds=bounds,  # constrain values    # TODO: fix
+        bounds=bounds,  # constrain values
         method=solver,  # fitting method
         tol=float(tol),  # fit tolerance
     )
@@ -661,7 +662,10 @@ def jmsam(x, obs, bb_m, bb_c, Kd_m, Kd_c, endmember_array):
 # RESULTS
 # Define the helper function for generating spectra
 def generate_spectrum(
-    fitted_params, wvs: pd.Series, endmember_array: np.ndarray, AOP_args: tuple
+    fitted_params: np.ndarray | pd.Series,
+    wvs: pd.Series,
+    endmember_array: np.ndarray,
+    AOP_args: tuple[np.array],
 ) -> pd.Series:
     bb, K, H = fitted_params.values[:3]
     return sub_surface_reflectance_Rb(
