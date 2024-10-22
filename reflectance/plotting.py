@@ -19,11 +19,16 @@ import xarray as xa
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-# metrics
+# stats
 from sklearn.metrics import r2_score
+import seaborn as sns
+import scipy.stats as stats
 
 # custom
 from reflectance import spectrum_utils
+
+# ignore runtimewarning: overflow encountered
+warnings.filterwarnings("ignore", category=RuntimeWarning)
 
 
 def format_axis_for_ppt(ax):
@@ -416,8 +421,11 @@ def plot_good_bad_fits(
 
     Parameters:
     - ax (plt.Axes): The axes on which to plot.
+    - spectra (pd.DataFrame): The dataframe containing the spectra data.
+    - fits (pd.DataFrame): The dataframe containing the fit data.
+    - metadata (pd.DataFrame): The dataframe containing the metadata, including the metric.
     - metric (str): The metric to use for filtering.
-    - bad_fit_range (tuple): The range of bad fits.
+    - bad_fit_range (tuple[float, float]): The range of bad fits.
     - metric_name (str): The name of the metric.
     """
     bad_inds = (metadata[metric] < max(bad_fit_range)) & (
@@ -453,6 +461,46 @@ def plot_good_bad_fits(
     ax.set_xlim(spectra.columns.min(), spectra.columns.max())
     ax.legend()
     return ax
+
+
+def fit_plot_distribution(data, xlims: tuple[float, float] = None, N_bins: int = 100):
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4))
+    hist = sns.histplot(
+        data, bins=N_bins, stat="density", alpha=0.6, color="g", kde=True, ax=axes[0]
+    )
+
+    x = np.linspace(min(data), max(data), 1000)
+    distributions = {
+        "Lognorm": stats.lognorm,
+        "Gamma": stats.gamma,
+        "Weibull_min": stats.weibull_min,
+        "Exponential": stats.expon,
+        "Normal": stats.norm,
+    }
+
+    pdfs = {}
+    ks_stats = {}
+    for name, dist in distributions.items():
+
+        params = dist.fit(data)
+        pdfs[name] = dist.pdf(x, *params)
+        ks_stats[name] = stats.kstest(data, dist.name, args=params).statistic
+
+    sns.histplot(
+        data, bins=N_bins, kde=False, stat="density", color="lightgray", ax=axes[1]
+    )
+    for name, pdf in pdfs.items():
+        axes[1].plot(
+            x, pdf, label=f"{name}: stat={ks_stats[name]:.02f}", alpha=0.6, ls=":"
+        )
+
+    axes[1].legend()
+    axes[1].set_ylim(0, np.max(hist.get_ylim()))
+    if xlims:
+        [ax.set_xlim(xlims) for ax in axes]
+
+    best_fit = min(ks_stats, key=ks_stats.get)
+    return pdfs[best_fit]
 
 
 def plot_proportions(data: dict, true_ratio: list[float]):
